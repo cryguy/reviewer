@@ -6,6 +6,8 @@ import { postComment } from '../github/comments.ts';
 import { postReview } from '../github/comments.ts';
 import { cloneRepo } from '../tools/clone-repo.ts';
 import { cleanupRepo } from '../tools/cleanup-repo.ts';
+import { getFileContents } from '../tools/get-file-contents.ts';
+import { searchCode } from '../tools/search-code.ts';
 import { createClaudeAgent, createCodexAgent } from '../ai/agents.ts';
 import { createOrchestratorProvider } from '../ai/providers.ts';
 import { buildToolDefinitions, runOrchestrator } from '../ai/orchestrator.ts';
@@ -57,47 +59,19 @@ export async function executeRun(run: Run, config: AppConfig): Promise<void> {
 
     messages.push({ role: 'user', content: run.trigger_body });
 
-    // 6. Wire up all tool handlers
+    // 6. Wire up all 12 tool handlers (pr_url-based params per spec)
     const tools = buildToolDefinitions({
-      get_pr_metadata: async (input: { owner: string; repo: string; number: number }) => {
-        return getPrMetadata(pat, input.owner, input.repo, input.number);
-      },
-
-      get_pr_diff: async (input: { owner: string; repo: string; number: number }) => {
-        return getPrDiff(pat, input.owner, input.repo, input.number);
-      },
-
-      get_changed_files: async (input: { owner: string; repo: string; number: number }) => {
-        return listChangedFiles(pat, input.owner, input.repo, input.number);
-      },
-
-      get_pr_comments: async (input: { owner: string; repo: string; number: number }) => {
-        return getPrComments(pat, input.owner, input.repo, input.number);
-      },
-
-      post_comment: async (input: { owner: string; repo: string; number: number; body: string }) => {
-        return postComment(pat, input.owner, input.repo, input.number, input.body);
-      },
-
-      post_review: async (input: {
-        owner: string;
-        repo: string;
-        number: number;
-        summary: string;
-        inline_comments?: Array<{ path: string; line: number; body: string; side?: 'LEFT' | 'RIGHT' }>;
-        event?: string;
-      }) => {
-        return postReview(pat, input.owner, input.repo, input.number, input.summary, input.inline_comments);
-      },
-
-      add_reaction: async (input: { owner: string; repo: string; comment_id: number; reaction: 'eyes' | 'rocket' | '+1' | 'heart' }) => {
-        await addReaction(pat, input.owner, input.repo, input.comment_id, input.reaction);
-        return { success: true };
-      },
-
-      clone_repo: async (input: { owner: string; repo: string; ref: string }) => {
-        const result = await cloneRepo({ pr_url: run.pr_url }, run.id, config.bot);
+      clone_repo: async (input: { pr_url: string }) => {
+        const result = await cloneRepo(input, run.id, config.bot);
         clonedRepoPath = result.repo_path;
+        return result;
+      },
+
+      cleanup_repo: async (input: { repo_path: string }) => {
+        const result = await cleanupRepo(input, config.bot);
+        if (input.repo_path === clonedRepoPath) {
+          clonedRepoPath = null;
+        }
         return result;
       },
 
@@ -109,27 +83,46 @@ export async function executeRun(run: Run, config: AppConfig): Promise<void> {
         return handleSpawnCodex(input, run, config);
       },
 
-      cleanup_repo: async (input: { repo_path: string }) => {
-        const result = await cleanupRepo(input, config.bot);
-        if (input.repo_path === clonedRepoPath) {
-          clonedRepoPath = null;
-        }
-        return result;
+      get_pr_diff: async (input: { pr_url: string }) => {
+        const parsed = parseRepoFromUrl(input.pr_url);
+        return getPrDiff(pat, parsed.owner, parsed.repo, parsed.number);
       },
 
-      get_run_status: async (input: { run_id: string }) => {
-        const details = getRunWithDetails(input.run_id);
-        if (!details) {
-          return { error: 'Run not found' };
-        }
-        return {
-          id: details.id,
-          status: details.status,
-          agent_outputs_count: details.agent_outputs.length,
-          has_review: details.review !== null,
-          cost_usd: details.cost_usd,
-          total_tokens: details.total_tokens,
-        };
+      get_pr_comments: async (input: { pr_url: string }) => {
+        const parsed = parseRepoFromUrl(input.pr_url);
+        return getPrComments(pat, parsed.owner, parsed.repo, parsed.number);
+      },
+
+      get_pr_metadata: async (input: { pr_url: string }) => {
+        const parsed = parseRepoFromUrl(input.pr_url);
+        return getPrMetadata(pat, parsed.owner, parsed.repo, parsed.number);
+      },
+
+      list_changed_files: async (input: { pr_url: string }) => {
+        const parsed = parseRepoFromUrl(input.pr_url);
+        return listChangedFiles(pat, parsed.owner, parsed.repo, parsed.number);
+      },
+
+      get_file_contents: async (input: { repo_path: string; file_path: string }) => {
+        return getFileContents(input);
+      },
+
+      search_code: async (input: { repo_path: string; query: string; file_glob?: string; max_results?: number }) => {
+        return searchCode(input);
+      },
+
+      post_review: async (input: {
+        pr_url: string;
+        summary: string;
+        inline_comments?: Array<{ path: string; line: number; body: string; side?: 'LEFT' | 'RIGHT' }>;
+      }) => {
+        const parsed = parseRepoFromUrl(input.pr_url);
+        return postReview(pat, parsed.owner, parsed.repo, parsed.number, input.summary, input.inline_comments);
+      },
+
+      post_comment: async (input: { pr_url: string; body: string }) => {
+        const parsed = parseRepoFromUrl(input.pr_url);
+        return postComment(pat, parsed.owner, parsed.repo, parsed.number, input.body);
       },
     });
 
