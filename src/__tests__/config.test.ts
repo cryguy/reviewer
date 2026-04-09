@@ -195,7 +195,7 @@ describe('resolveSystemPrompt', () => {
     } as unknown as Parameters<typeof resolveSystemPrompt>[0];
 
     const result = resolveSystemPrompt(config, 'owner/repo', 'main');
-    expect(result).toContain('senior software engineer');
+    expect(result).toContain('senior code reviewer bot');
   });
 
   it('cloneBasePath defaults to tmpdir path when null in config', () => {

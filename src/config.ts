@@ -2,6 +2,7 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getDefaultSystemPrompt } from './ai/system-prompt.ts';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -58,11 +59,8 @@ const ConfigSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export type BotConfig = z.infer<typeof BotConfigSchema>;
-export type OrchestratorConfig = z.infer<typeof OrchestratorConfigSchema>;
 export type CodexAgentConfig = z.infer<typeof CodexAgentConfigSchema>;
 export type ClaudeAgentConfig = z.infer<typeof ClaudeAgentConfigSchema>;
-export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
-export type DashboardConfig = z.infer<typeof DashboardConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
 // ---------------------------------------------------------------------------
@@ -126,14 +124,6 @@ export function loadConfig(): Config {
 // System prompt resolution
 // ---------------------------------------------------------------------------
 
-const HARDCODED_DEFAULT_SYSTEM_PROMPT = `You are a senior software engineer performing a thorough code review.
-Analyse the provided pull request diff and repository context, then produce a structured review covering:
-- Correctness and logic errors
-- Security concerns
-- Performance implications
-- Code style and maintainability
-Be specific, cite line numbers where relevant, and suggest concrete improvements.`;
-
 export function resolveSystemPrompt(
   config: Config,
   repo: string,
@@ -171,6 +161,6 @@ export function resolveSystemPrompt(
     return config.orchestrator.systemPrompt;
   }
 
-  // 6. Hardcoded default
-  return HARDCODED_DEFAULT_SYSTEM_PROMPT;
+  // 6. Hardcoded default (comprehensive prompt with tool instructions, synthesis format, etc.)
+  return getDefaultSystemPrompt();
 }
