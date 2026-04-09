@@ -5,8 +5,7 @@ import { recoverInterruptedRuns } from './db/queue';
 import { checkRateLimit } from './github/client';
 import { startPoller, stopPoller } from './polling/poller';
 import { startQueueProcessor, stopQueueProcessor } from './queue/manager';
-// Note: startServer will be imported from './server' once it exists
-// For now, add a placeholder comment
+import { startServer, stopServer } from './server';
 
 async function main() {
   try {
@@ -37,8 +36,7 @@ async function main() {
     logger.info('Queue processor started');
 
     // 7. Start HTTP server (dashboard API + SPA)
-    // Will be: startServer(config);
-    // For now, log placeholder
+    startServer(config);
     logger.info('Reviewer Bot started', {
       port: config.dashboard.port,
       username: config.bot.githubUsername,
@@ -53,7 +51,7 @@ async function main() {
       logger.info('Shutting down...');
       stopPoller();
       stopQueueProcessor();
-      // stopServer(); — when server is ready
+      stopServer();
       logger.info('Shutdown complete');
       process.exit(0);
     }

@@ -1,0 +1,74 @@
+.config-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* Section tabs */
+.config-tabs {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.config-tab {
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.config-tab:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+
+.config-tab.active {
+  background: var(--bg-raised);
+}
+
+/* Content panel */
+.config-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-section-header {
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--bg-surface);
+}
+
+.config-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.config-json {
+  padding: var(--sp-5) var(--sp-6);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+/* JSON syntax colors */
+.json-key    { color: var(--blue); }
+.json-string { color: var(--green); }
+.json-number { color: var(--amber); }
+.json-bool   { color: var(--amber); }
+.json-null   { color: var(--text-muted); font-style: italic; }
+.json-bracket { color: var(--text-muted); }
+.json-punct  { color: var(--text-dim); }
+
+.json-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  flex-wrap: wrap;
+}

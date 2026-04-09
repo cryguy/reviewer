@@ -1,0 +1,408 @@
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import {
+  loadCredentials,
+  getRunDetail,
+  type RunWithDetails,
+  type AgentOutput,
+  type Review,
+  type InlineComment,
+} from '../lib/api';
+import './RunDetailPage.css';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+function formatDurationMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  return `${mins}m ${rem}s`;
+}
+
+function formatRunDuration(run: RunWithDetails): string {
+  if (!run.started_at) return '—';
+  const end = run.completed_at ? new Date(run.completed_at) : new Date();
+  const ms = end.getTime() - new Date(run.started_at).getTime();
+  return formatDurationMs(ms);
+}
+
+// ---------------------------------------------------------------------------
+// Markdown renderer (simple subset — headings, bold, code, bullets)
+// ---------------------------------------------------------------------------
+
+function renderMarkdown(text: string): string {
+  return text
+    // Headings
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // Code blocks
+    .replace(/```[\w]*\n([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Bullet lists
+    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+    // Newlines to paragraphs (crude but effective)
+    .replace(/\n{2,}/g, '</p><p>')
+    .replace(/^(?!<[hH\d]|<pre|<li|<\/p)(.+)$/gm, '$1')
+    .replace(/<li>[\s\S]*?(<\/li>)?/g, (m) => m) // keep lists
+    ;
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function StatusBadge({ status }: { status: string }) {
+  return <span className={`pill pill-${status}`}>{status}</span>;
+}
+
+function TimingBar({ run }: { run: RunWithDetails }) {
+  return (
+    <div className="timing-bar card">
+      <div className="timing-step">
+        <div className="timing-step-label section-label">Queued</div>
+        <div className="timing-step-time mono">{formatTime(run.created_at)}</div>
+      </div>
+      <div className="timing-arrow">→</div>
+      <div className="timing-step">
+        <div className="timing-step-label section-label">Started</div>
+        <div className="timing-step-time mono">
+          {run.started_at ? formatTime(run.started_at) : '—'}
+        </div>
+      </div>
+      <div className="timing-arrow">→</div>
+      <div className="timing-step">
+        <div className="timing-step-label section-label">Finished</div>
+        <div className="timing-step-time mono">
+          {run.completed_at ? formatTime(run.completed_at) : '—'}
+        </div>
+      </div>
+      <div className="timing-duration">
+        <div className="timing-step-label section-label">Total</div>
+        <div className="timing-step-time mono" style={{ color: 'var(--text-primary)', fontSize: 15 }}>
+          {formatRunDuration(run)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentPanel({ output, isFirst }: { output: AgentOutput; isFirst: boolean }) {
+  const isClaude = output.agent_type === 'claude';
+  const [collapsed, setCollapsed] = useState(!isFirst);
+
+  const accentColor = isClaude ? 'var(--blue)' : 'var(--green)';
+  const agentBg = isClaude ? 'var(--blue-bg)' : 'var(--green-bg)';
+  const agentEmoji = isClaude ? '🔵' : '🟢';
+  const totalTokens =
+    (output.tokens_prompt ?? 0) + (output.tokens_completion ?? 0);
+
+  return (
+    <div
+      className="agent-panel card"
+      style={{ borderColor: isClaude ? 'var(--blue-dim)' : 'var(--green-dim)' }}
+    >
+      <div
+        className="agent-panel-header"
+        style={{ background: agentBg, borderBottom: `1px solid var(--border-dim)` }}
+        onClick={() => setCollapsed((c) => !c)}
+      >
+        <div className="agent-panel-title">
+          <span>{agentEmoji}</span>
+          <span className="agent-name" style={{ color: accentColor }}>
+            {output.agent_type.toUpperCase()}
+          </span>
+        </div>
+        <div className="agent-panel-meta">
+          {output.duration_ms !== null && (
+            <span className="mono text-muted" style={{ fontSize: 12 }}>
+              {formatDurationMs(output.duration_ms)}
+            </span>
+          )}
+          {totalTokens > 0 && (
+            <span className="mono text-muted" style={{ fontSize: 12 }}>
+              {totalTokens.toLocaleString()} tok
+            </span>
+          )}
+          <span className="collapse-toggle" style={{ color: accentColor }}>
+            {collapsed ? '▶ expand' : '▼ collapse'}
+          </span>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <div className="agent-panel-body">
+          {output.prompt && (
+            <details className="prompt-details">
+              <summary className="prompt-summary section-label">Prompt</summary>
+              <pre className="agent-code">{output.prompt}</pre>
+            </details>
+          )}
+          <div className="agent-output-label section-label">Raw Output</div>
+          <pre className="agent-code agent-output">
+            {output.raw_output ?? '(no output)'}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewSection({ review }: { review: Review }) {
+  let inlineComments: InlineComment[] = [];
+  try {
+    inlineComments = JSON.parse(review.inline_comments) as InlineComment[];
+  } catch {
+    inlineComments = [];
+  }
+
+  return (
+    <div className="review-section">
+      <div className="section-header-row">
+        <div className="section-label">Synthesized Review</div>
+        {review.comment_url && (
+          <a
+            href={review.comment_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn"
+            style={{ fontSize: 11 }}
+          >
+            ↗ View on GitHub
+          </a>
+        )}
+      </div>
+
+      <div
+        className="review-body card"
+        dangerouslySetInnerHTML={{ __html: '<p>' + renderMarkdown(review.summary) + '</p>' }}
+      />
+
+      {inlineComments.length > 0 && (
+        <div className="inline-comments">
+          <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>
+            Inline Comments ({inlineComments.length})
+          </div>
+          {inlineComments.map((c, i) => (
+            <div key={i} className="inline-comment card">
+              <div className="inline-comment-header">
+                <span className="mono text-blue">{c.path}</span>
+                <span className="mono text-muted">L{c.line}</span>
+                {c.side && (
+                  <span className="pill pill-queued" style={{ fontSize: 9 }}>{c.side}</span>
+                )}
+              </div>
+              <div className="inline-comment-body">{c.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DirectResponseSection({ run }: { run: RunWithDetails }) {
+  if (!run.review) return null;
+  return (
+    <div className="review-section">
+      <div className="section-header-row">
+        <div className="section-label">Direct Response</div>
+        {run.review.comment_url && (
+          <a
+            href={run.review.comment_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn"
+            style={{ fontSize: 11 }}
+          >
+            ↗ View on GitHub
+          </a>
+        )}
+      </div>
+      <div
+        className="review-body card"
+        dangerouslySetInnerHTML={{ __html: '<p>' + renderMarkdown(run.review.summary) + '</p>' }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+export default function RunDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const creds = loadCredentials();
+
+  const [run, setRun] = useState<RunWithDetails | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    getRunDetail(creds, id)
+      .then((data) => {
+        setRun(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : 'Failed to load run');
+        setLoading(false);
+      });
+  }, [id, creds]);
+
+  if (loading) {
+    return (
+      <>
+        <div className="page-header">
+          <div className="page-title">Run Detail</div>
+        </div>
+        <div className="loading-row"><span className="spinner" /> Loading run...</div>
+      </>
+    );
+  }
+
+  if (error || !run) {
+    return (
+      <>
+        <div className="page-header">
+          <div className="page-title">Run Detail</div>
+        </div>
+        <div className="page-body">
+          <div className="error-bar">{error ?? 'Run not found'}</div>
+          <button className="btn" onClick={() => navigate('/runs')}>← Back to Runs</button>
+        </div>
+      </>
+    );
+  }
+
+  const hasAgentOutputs = run.agent_outputs.length > 0;
+
+  // Group by agent type
+  const claudeOutput = run.agent_outputs.find((o) => o.agent_type === 'claude') ?? null;
+  const codexOutput = run.agent_outputs.find((o) => o.agent_type === 'codex') ?? null;
+
+  return (
+    <>
+      {/* Header */}
+      <div className="page-header">
+        <div className="detail-header-left">
+          <button
+            className="btn back-btn"
+            onClick={() => navigate('/runs')}
+          >
+            ← Runs
+          </button>
+          <div className="detail-pr-title">
+            <span className="mono text-muted">{run.repo}</span>
+            <span className="mono" style={{ fontSize: 16, fontWeight: 700 }}>
+              #{run.pr_number}
+            </span>
+          </div>
+        </div>
+        <div className="detail-header-right">
+          <StatusBadge status={run.status} />
+          {run.pr_url && (
+            <a
+              href={run.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn"
+            >
+              ↗ GitHub PR
+            </a>
+          )}
+        </div>
+      </div>
+
+      <div className="page-body detail-body">
+        {/* Metadata */}
+        <div className="meta-grid">
+          <div className="meta-item">
+            <div className="section-label">Triggered by</div>
+            <div className="mono">@{run.trigger_user}</div>
+          </div>
+          <div className="meta-item">
+            <div className="section-label">Trigger</div>
+            <div className="mono text-secondary" style={{ fontSize: 12 }}>
+              {run.trigger_body.slice(0, 80)}
+            </div>
+          </div>
+          <div className="meta-item">
+            <div className="section-label">Cost</div>
+            <div className="mono" style={{ color: 'var(--green)' }}>
+              {run.cost_usd !== null ? `$${run.cost_usd.toFixed(4)}` : '—'}
+            </div>
+          </div>
+          <div className="meta-item">
+            <div className="section-label">Tokens</div>
+            <div className="mono text-secondary">
+              {run.total_tokens !== null ? run.total_tokens.toLocaleString() : '—'}
+            </div>
+          </div>
+          {run.error && (
+            <div className="meta-item meta-item-error">
+              <div className="section-label" style={{ color: 'var(--red)' }}>Error</div>
+              <div className="mono" style={{ color: 'var(--red)', fontSize: 12 }}>
+                {run.error}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Timing */}
+        <TimingBar run={run} />
+
+        {/* Agent outputs */}
+        {hasAgentOutputs ? (
+          <div className="agent-outputs-section">
+            <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>
+              Agent Outputs ({run.agent_outputs.length})
+            </div>
+            <div className="agent-panels">
+              {claudeOutput && (
+                <AgentPanel output={claudeOutput} isFirst={!codexOutput || true} />
+              )}
+              {codexOutput && (
+                <AgentPanel output={codexOutput} isFirst={!claudeOutput} />
+              )}
+              {/* Any other outputs */}
+              {run.agent_outputs
+                .filter((o) => o.agent_type !== 'claude' && o.agent_type !== 'codex')
+                .map((o, i) => (
+                  <AgentPanel key={o.id} output={o} isFirst={i === 0} />
+                ))}
+            </div>
+          </div>
+        ) : (
+          run.review && <DirectResponseSection run={run} />
+        )}
+
+        {/* Review (only when there were agent outputs) */}
+        {hasAgentOutputs && run.review && <ReviewSection review={run.review} />}
+      </div>
+    </>
+  );
+}

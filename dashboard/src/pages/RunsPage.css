@@ -1,0 +1,80 @@
+.runs-meta {
+  font-size: 12px;
+}
+
+/* Filters */
+.filters-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.filter-group-repo {
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.filter-select {
+  width: 140px;
+}
+
+.repo-input-row {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.filter-clear {
+  align-self: flex-end;
+  color: var(--red);
+  border-color: var(--red);
+}
+.filter-clear:hover {
+  background: var(--red-bg);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* Table */
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.pr-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pr-repo {
+  font-size: 11px;
+}
+
+.pr-number {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cost-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cost-usd {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--green);
+}
+
+.cost-tokens {
+  font-size: 11px;
+}
