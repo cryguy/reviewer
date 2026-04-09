@@ -132,7 +132,7 @@ describe('resolveSystemPrompt', () => {
           'owner/my-repo': 'Exact repo prompt',
         },
       },
-    } as Parameters<typeof resolveSystemPrompt>[0];
+    } as unknown as Parameters<typeof resolveSystemPrompt>[0];
 
     const result = resolveSystemPrompt(config, 'owner/my-repo', 'main');
     expect(result).toBe('Exact repo prompt');
@@ -148,7 +148,7 @@ describe('resolveSystemPrompt', () => {
           'owner/*': 'Glob repo prompt',
         },
       },
-    } as Parameters<typeof resolveSystemPrompt>[0];
+    } as unknown as Parameters<typeof resolveSystemPrompt>[0];
 
     const result = resolveSystemPrompt(config, 'owner/any-repo', 'main');
     expect(result).toBe('Glob repo prompt');
@@ -164,7 +164,7 @@ describe('resolveSystemPrompt', () => {
           'owner/repo:feature-branch': 'Branch-specific prompt',
         },
       },
-    } as Parameters<typeof resolveSystemPrompt>[0];
+    } as unknown as Parameters<typeof resolveSystemPrompt>[0];
 
     const result = resolveSystemPrompt(config, 'owner/repo', 'feature-branch');
     expect(result).toBe('Branch-specific prompt');
@@ -178,7 +178,7 @@ describe('resolveSystemPrompt', () => {
         systemPrompt: 'Global override prompt',
         repoOverrides: {},
       },
-    } as Parameters<typeof resolveSystemPrompt>[0];
+    } as unknown as Parameters<typeof resolveSystemPrompt>[0];
 
     const result = resolveSystemPrompt(config, 'owner/repo', 'main');
     expect(result).toBe('Global override prompt');
@@ -192,7 +192,7 @@ describe('resolveSystemPrompt', () => {
         systemPrompt: null,
         repoOverrides: {},
       },
-    } as Parameters<typeof resolveSystemPrompt>[0];
+    } as unknown as Parameters<typeof resolveSystemPrompt>[0];
 
     const result = resolveSystemPrompt(config, 'owner/repo', 'main');
     expect(result).toContain('senior software engineer');
