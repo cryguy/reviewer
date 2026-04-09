@@ -1,0 +1,35 @@
+{
+  "bot": {
+    "githubUsername": "your-bot-username",
+    "githubPAT": "ghp_your_token_here",
+    "pollIntervalSeconds": 30,
+    "runTimeoutMinutes": 15,
+    "cloneBasePath": null,
+    "maxToolLoopSteps": 20
+  },
+  "orchestrator": {
+    "nanogptApiKey": "your-nanogpt-key",
+    "model": "moonshotai/kimi-k2.5:thinking",
+    "systemPrompt": null,
+    "repoOverrides": {}
+  },
+  "agents": {
+    "codex": {
+      "model": "gpt-5.2-codex",
+      "reasoningEffort": "high",
+      "sandboxMode": "read-only"
+    },
+    "claude": {
+      "model": "sonnet",
+      "allowedTools": ["Read", "Glob", "Grep"],
+      "permissionMode": "bypassPermissions"
+    }
+  },
+  "whitelist": ["your-github-username"],
+  "dashboard": {
+    "port": 3000,
+    "auth": {
+      "admin": "change-me"
+    }
+  }
+}
