@@ -249,6 +249,13 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
   console.log(`[orchestrator] Model: ${params.model.id}, System prompt length: ${params.systemPrompt.length}, Messages: ${params.messages.length}, Tools: ${params.tools.length}, Max steps: ${params.maxSteps}, Timeout: ${params.timeoutMs}ms`);
 
+  // Tools that require a cloned repo before they can execute
+  const CLONE_DEPENDENT_TOOLS = new Set([
+    'spawn_claude_cli', 'spawn_codex_cli',
+    'get_file_contents', 'search_code', 'cleanup_repo',
+  ]);
+  let cloneReady = false;
+
   const agent = new Agent({
     initialState: {
       systemPrompt: params.systemPrompt,
@@ -257,9 +264,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
       tools: params.tools,
       messages: historyToMessages(history),
     },
-    toolExecution: 'sequential',
+    toolExecution: 'parallel',
     getApiKey: params.apiKey ? async () => params.apiKey : undefined,
     beforeToolCall: async ({ toolCall, args }) => {
+      // Gate: block clone-dependent tools until clone_repo has completed
+      if (CLONE_DEPENDENT_TOOLS.has(toolCall.name) && !cloneReady) {
+        return {
+          block: true,
+          reason: `Tool "${toolCall.name}" requires a cloned repository. Call clone_repo first, then retry.`,
+        };
+      }
+
       if (toolCall.name === 'post_to_pr') {
         const parsedArgs = args as Record<string, unknown> | undefined;
         if (parsedArgs?.type === 'comment') {
@@ -274,6 +289,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
       if (toolCallCount > params.maxSteps) {
         return { block: true, reason: `Tool-call limit (${params.maxSteps}) reached` };
       }
+    },
+    afterToolCall: async ({ toolCall, isError }) => {
+      // Mark clone as ready once clone_repo succeeds
+      if (toolCall.name === 'clone_repo' && !isError) {
+        cloneReady = true;
+      }
+      // Mark clone as gone after cleanup
+      if (toolCall.name === 'cleanup_repo' && !isError) {
+        cloneReady = false;
+      }
+      return undefined;
     },
   });
 
