@@ -481,18 +481,26 @@ function LiveTimeline({ events, isRunning }: { events: RunEvent[]; isRunning: bo
         {events.length === 0 ? (
           <div className="live-timeline-empty mono text-muted">Waiting for events...</div>
         ) : (
-          events.map((evt) => (
-            <div key={evt.id} className="live-event" style={{ borderLeftColor: eventColor(evt.event_type) }}>
-              <span className="live-event-icon" style={{ color: eventColor(evt.event_type) }}>
-                {eventIcon(evt.event_type)}
-              </span>
-              <span className="live-event-phase mono">{phaseLabel(evt.phase)}</span>
-              <span className="live-event-message">{evt.message}</span>
-              <span className="live-event-time mono text-muted">
-                {new Date(evt.created_at).toLocaleTimeString('en-US', { hour12: false })}
-              </span>
-            </div>
-          ))
+          events.map((evt, i) => {
+            const isLast = i === events.length - 1;
+            return (
+              <div
+                key={evt.id}
+                className={`live-event${isLast && isRunning ? ' live-event-active' : ''}`}
+                style={{ borderLeftColor: isLast && isRunning ? 'var(--blue)' : eventColor(evt.event_type) }}
+              >
+                <span className="live-event-icon" style={{ color: isLast && isRunning ? 'var(--blue)' : eventColor(evt.event_type) }}>
+                  {isLast && isRunning ? '' : eventIcon(evt.event_type)}
+                </span>
+                {isLast && isRunning && <span className="spinner spinner-sm" />}
+                <span className="live-event-phase mono">{phaseLabel(evt.phase)}</span>
+                <span className="live-event-message">{evt.message}</span>
+                <span className="live-event-time mono text-muted">
+                  {new Date(evt.created_at).toLocaleTimeString('en-US', { hour12: false })}
+                </span>
+              </div>
+            );
+          })
         )}
         <div ref={bottomRef} />
       </div>
