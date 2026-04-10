@@ -115,17 +115,24 @@ export async function githubRequestJson<T>(
 // ---------------------------------------------------------------------------
 
 export async function checkRateLimit(pat: string): Promise<void> {
-  const data = await githubRequestJson<{
+  const response = await githubRequest(pat, 'GET', '/rate_limit');
+  const data = (await response.json()) as {
     rate: { remaining: number; reset: number };
-  }>(pat, 'GET', '/rate_limit');
+  };
 
   rateLimitState.remaining = data.rate.remaining;
   rateLimitState.resetAt = data.rate.reset;
 
+  const scopes = response.headers.get('x-oauth-scopes') ?? 'none';
   logger.info('GitHub rate limit initialised', {
     remaining: rateLimitState.remaining,
     resetAt: new Date(rateLimitState.resetAt * 1000).toISOString(),
+    scopes,
   });
+
+  if (!scopes.includes('notifications')) {
+    logger.warn('PAT is missing "notifications" scope — notification polling will not work');
+  }
 }
 
 export function getRateLimitState(): Readonly<RateLimitState> {

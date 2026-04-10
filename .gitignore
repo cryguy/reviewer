@@ -37,6 +37,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Project secrets
 config.json
+codex.json
 
 # SQLite databases
 *.db
+*.db-shm
+*.db-wal

@@ -59,6 +59,17 @@ CREATE TABLE IF NOT EXISTS conversation_memory (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`;
 
+const CREATE_RUN_STEPS = `
+CREATE TABLE IF NOT EXISTS run_steps (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id),
+  step_number INTEGER NOT NULL,
+  tool_calls TEXT NOT NULL DEFAULT '[]',
+  usage_input INTEGER,
+  usage_output INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`;
+
 const CREATE_KV = `
 CREATE TABLE IF NOT EXISTS kv (
   key TEXT PRIMARY KEY,
@@ -76,6 +87,7 @@ const INDICES = [
   `CREATE INDEX IF NOT EXISTS idx_memory_run ON conversation_memory(run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_agent_outputs_run ON agent_outputs(run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_reviews_run ON reviews(run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_run_steps_run ON run_steps(run_id)`,
 ];
 
 // ---------------------------------------------------------------------------
@@ -87,6 +99,7 @@ export function initializeDatabase(db: Database): void {
   db.run(CREATE_AGENT_OUTPUTS);
   db.run(CREATE_REVIEWS);
   db.run(CREATE_CONVERSATION_MEMORY);
+  db.run(CREATE_RUN_STEPS);
   db.run(CREATE_KV);
 
   for (const idx of INDICES) {

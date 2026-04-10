@@ -1,6 +1,7 @@
 import { createClaudeCode } from 'ai-sdk-provider-claude-code';
 import { createCodexAppServer, type Session } from 'ai-sdk-provider-codex-app-server';
 import type { ClaudeAgentConfig, CodexAgentConfig } from '../config.ts';
+import { resolveCodexPath } from './providers.ts';
 
 // Create a Claude Code agent scoped to a repo path
 export function createClaudeAgent(repoPath: string, config: ClaudeAgentConfig) {
@@ -19,6 +20,7 @@ export function createCodexAgent(repoPath: string, config: CodexAgentConfig) {
   let session: Session | undefined;
   const provider = createCodexAppServer({
     defaultSettings: {
+      codexPath: resolveCodexPath(),
       cwd: repoPath,
       sandboxMode: config.sandboxMode as any,
       reasoningEffort: config.reasoningEffort as any,

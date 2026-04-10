@@ -6,7 +6,8 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch src/index.ts",
-    "build": "bun build --compile src/index.ts --outfile reviewer",
+    "build": "cd dashboard && bun install && bun run build && cd .. && bun build --compile src/index.ts --outfile reviewer",
+    "build:linux": "cd dashboard && bun install && bun run build && cd .. && bun build --compile --target=bun-linux-x64 src/index.ts --outfile reviewer",
     "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {
@@ -16,8 +17,9 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^2.0.41",
-    "ai": "^6.0.154",
+    "@mariozechner/pi-agent-core": "^0.66.1",
+    "@mariozechner/pi-ai": "^0.66.1",
+    "ai": "^6.0.156",
     "ai-sdk-provider-claude-code": "^3.4.4",
     "ai-sdk-provider-codex-app-server": "^1.1.7",
     "zod": "^4.3.6"

@@ -1,5 +1,5 @@
 import { getDb, generateId } from './index.ts';
-import type { Run, AgentOutput, Review, RunStatus, RunWithDetails } from './types.ts';
+import type { Run, AgentOutput, Review, RunStep, RunStatus, RunWithDetails } from './types.ts';
 import { logger } from '../logger.ts';
 
 // ---------------------------------------------------------------------------
@@ -89,7 +89,34 @@ export function getRunWithDetails(id: string): RunWithDetails | null {
       )
       .get({ $run_id: id }) ?? null;
 
-  return { ...run, agent_outputs, review };
+  const steps = db
+    .query<RunStep, [NamedBinding]>(
+      `SELECT * FROM run_steps WHERE run_id = $run_id ORDER BY step_number ASC`,
+    )
+    .all({ $run_id: id });
+
+  return { ...run, agent_outputs, review, steps };
+}
+
+export function insertRunStep(
+  runId: string,
+  stepNumber: number,
+  toolCalls: Array<{ toolName: string; args: unknown; result?: unknown }>,
+  usageInput: number | null,
+  usageOutput: number | null,
+): void {
+  const db = getDb();
+  db.query(
+    `INSERT INTO run_steps (id, run_id, step_number, tool_calls, usage_input, usage_output)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    generateId(),
+    runId,
+    stepNumber,
+    JSON.stringify(toolCalls),
+    usageInput,
+    usageOutput,
+  );
 }
 
 export function listRuns(filters?: ListRunsFilters): Run[] {

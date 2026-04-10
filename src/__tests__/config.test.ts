@@ -23,7 +23,8 @@ const VALID_CONFIG = {
     maxToolLoopSteps: 20,
   },
   orchestrator: {
-    nanogptApiKey: 'test-key',
+    provider: 'codex',
+    apiKey: '',
     model: 'test-model',
     systemPrompt: null,
     repoOverrides: {},

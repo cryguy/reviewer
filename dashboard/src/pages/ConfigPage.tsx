@@ -66,14 +66,13 @@ function JsonValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
 }
 
 export default function ConfigPage() {
-  const creds = loadCredentials();
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<ConfigSection>('bot');
 
   useEffect(() => {
-    getConfig(creds)
+    getConfig(loadCredentials())
       .then((data) => {
         setConfig(data as Record<string, unknown>);
         setLoading(false);
@@ -82,7 +81,7 @@ export default function ConfigPage() {
         setError(err instanceof Error ? err.message : 'Failed to load config');
         setLoading(false);
       });
-  }, [creds]);
+  }, []);
 
   const sections = config
     ? (['bot', 'orchestrator', 'agents', 'dashboard', 'whitelist'] as ConfigSection[]).filter(

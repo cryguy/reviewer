@@ -1,5 +1,4 @@
 import { getDb } from '../db/index.ts';
-import { recoverInterruptedRuns } from '../db/queue.ts';
 import { pollNotifications } from '../github/notifications.ts';
 import { markNotificationRead } from '../github/notifications.ts';
 import { processMention } from './trigger.ts';
@@ -10,7 +9,6 @@ import type { Config } from '../config.ts';
 // Types
 // ---------------------------------------------------------------------------
 
-type AppConfig = Config;
 type NamedBinding = Record<string, string | number | boolean | null>;
 
 // ---------------------------------------------------------------------------
@@ -45,19 +43,10 @@ let _interval: ReturnType<typeof setInterval> | null = null;
 // Poller
 // ---------------------------------------------------------------------------
 
-export function startPoller(config: AppConfig): void {
+export function startPoller(config: Config): void {
   if (_interval !== null) {
     logger.warn('Poller already running');
     return;
-  }
-
-  // Recover any interrupted runs on startup
-  const recovered = recoverInterruptedRuns();
-  if (recovered.length > 0) {
-    logger.info('Recovered interrupted runs', {
-      count: recovered.length,
-      ids: recovered.map((r) => r.id),
-    });
   }
 
   const intervalMs = config.bot.pollIntervalSeconds * 1000;
@@ -83,12 +72,16 @@ export function stopPoller(): void {
 // Single poll tick
 // ---------------------------------------------------------------------------
 
-async function pollTick(config: AppConfig): Promise<void> {
+async function pollTick(config: Config): Promise<void> {
   try {
-    // Read last poll timestamp from kv table (default to 1 hour ago)
+    // Read last poll timestamp from kv table (default to 1 hour ago).
+    // Subtract a 5-minute overlap buffer to catch notifications that were
+    // slow to propagate through GitHub's API.
     let lastPoll = getKv('lastPollTimestamp');
     if (lastPoll === null) {
       lastPoll = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    } else {
+      lastPoll = new Date(new Date(lastPoll).getTime() - 5 * 60 * 1000).toISOString();
     }
 
     // Poll GitHub notifications

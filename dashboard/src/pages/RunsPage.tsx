@@ -52,7 +52,6 @@ function CostDisplay({ cost, tokens }: { cost: number | null; tokens: number | n
 }
 
 export default function RunsPage() {
-  const creds = loadCredentials();
   const navigate = useNavigate();
 
   const [runs, setRuns] = useState<Run[]>([]);
@@ -67,7 +66,7 @@ export default function RunsPage() {
       const filters: { status?: RunStatus; repo?: string } = {};
       if (statusFilter) filters.status = statusFilter;
       if (repoFilter) filters.repo = repoFilter;
-      const result = await getRuns(creds, filters);
+      const result = await getRuns(loadCredentials(), filters);
       setRuns(result);
       setError(null);
     } catch (err) {
@@ -75,7 +74,7 @@ export default function RunsPage() {
     } finally {
       setLoading(false);
     }
-  }, [creds, statusFilter, repoFilter]);
+  }, [statusFilter, repoFilter]);
 
   useEffect(() => {
     setLoading(true);
@@ -164,6 +163,7 @@ export default function RunsPage() {
                   <th>PR</th>
                   <th>Status</th>
                   <th>Triggered by</th>
+                  <th>Trigger</th>
                   <th>Duration</th>
                   <th>Cost</th>
                   <th>Created</th>
@@ -184,6 +184,12 @@ export default function RunsPage() {
                     <td><StatusPill status={run.status} /></td>
                     <td>
                       <span className="mono text-secondary">@{run.trigger_user}</span>
+                    </td>
+                    <td>
+                      <span className="trigger-snippet text-muted" title={run.trigger_body}>
+                        {run.trigger_body.replace(/@\S+\s*/, '').slice(0, 60) || run.trigger_body.slice(0, 60)}
+                        {run.trigger_body.length > 60 ? '...' : ''}
+                      </span>
                     </td>
                     <td>
                       <span className="mono text-secondary">{formatDuration(run)}</span>

@@ -99,21 +99,20 @@ function QueuedRow({ run, position }: { run: Run; position: number }) {
 }
 
 export default function QueuePage() {
-  const creds = loadCredentials();
   const [data, setData] = useState<QueueResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const result = await getQueue(creds);
+      const result = await getQueue(loadCredentials());
       setData(result);
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch queue');
     }
-  }, [creds]);
+  }, []);
 
   useEffect(() => {
     fetchData();

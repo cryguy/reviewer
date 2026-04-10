@@ -6,6 +6,7 @@ import {
   type RunWithDetails,
   type AgentOutput,
   type Review,
+  type RunStep,
   type InlineComment,
 } from '../lib/api';
 import './RunDetailPage.css';
@@ -221,6 +222,90 @@ function ReviewSection({ review }: { review: Review }) {
   );
 }
 
+interface ToolCallEntry {
+  toolName: string;
+  args: Record<string, unknown>;
+  result?: unknown;
+}
+
+function StepsTimeline({ steps }: { steps: RunStep[] }) {
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
+
+  if (steps.length === 0) return null;
+
+  return (
+    <div className="steps-section">
+      <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>
+        Orchestrator Steps ({steps.length})
+      </div>
+      <div className="steps-timeline">
+        {steps.map((step) => {
+          let toolCalls: ToolCallEntry[] = [];
+          try { toolCalls = JSON.parse(step.tool_calls) as ToolCallEntry[]; } catch { /* empty */ }
+          const isExpanded = expandedStep === step.step_number;
+          const totalTokens = (step.usage_input ?? 0) + (step.usage_output ?? 0);
+
+          return (
+            <div key={step.id} className="step-item card">
+              <div
+                className="step-header"
+                onClick={() => setExpandedStep(isExpanded ? null : step.step_number)}
+              >
+                <div className="step-header-left">
+                  <span className="step-number">Step {step.step_number}</span>
+                  <span className="step-tools-summary mono text-muted">
+                    {toolCalls.length > 0
+                      ? toolCalls.map((tc) => tc.toolName).join(' → ')
+                      : '(no tool calls)'}
+                  </span>
+                </div>
+                <div className="step-header-right">
+                  {totalTokens > 0 && (
+                    <span className="mono text-muted" style={{ fontSize: 11 }}>
+                      {(step.usage_input ?? 0).toLocaleString()} in / {(step.usage_output ?? 0).toLocaleString()} out
+                    </span>
+                  )}
+                  <span className="collapse-toggle" style={{ fontSize: 11 }}>
+                    {isExpanded ? '▼' : '▶'}
+                  </span>
+                </div>
+              </div>
+
+              {isExpanded && toolCalls.length > 0 && (
+                <div className="step-details">
+                  {toolCalls.map((tc, i) => (
+                    <div key={i} className="step-tool-call">
+                      <div className="step-tool-name mono">{tc.toolName}</div>
+                      <details className="step-tool-data">
+                        <summary className="text-muted" style={{ fontSize: 11, cursor: 'pointer' }}>
+                          args
+                        </summary>
+                        <pre className="step-tool-json">{JSON.stringify(tc.args, null, 2)}</pre>
+                      </details>
+                      {tc.result !== undefined && (
+                        <details className="step-tool-data">
+                          <summary className="text-muted" style={{ fontSize: 11, cursor: 'pointer' }}>
+                            result
+                          </summary>
+                          <pre className="step-tool-json">
+                            {typeof tc.result === 'string'
+                              ? tc.result.slice(0, 2000)
+                              : JSON.stringify(tc.result, null, 2)?.slice(0, 2000)}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DirectResponseSection({ run }: { run: RunWithDetails }) {
   if (!run.review) return null;
   return (
@@ -254,15 +339,13 @@ function DirectResponseSection({ run }: { run: RunWithDetails }) {
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const creds = loadCredentials();
-
   const [run, setRun] = useState<RunWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    getRunDetail(creds, id)
+    getRunDetail(loadCredentials(), id)
       .then((data) => {
         setRun(data);
         setLoading(false);
@@ -271,7 +354,7 @@ export default function RunDetailPage() {
         setError(err instanceof Error ? err.message : 'Failed to load run');
         setLoading(false);
       });
-  }, [id, creds]);
+  }, [id]);
 
   if (loading) {
     return (
@@ -374,6 +457,9 @@ export default function RunDetailPage() {
 
         {/* Timing */}
         <TimingBar run={run} />
+
+        {/* Orchestrator Steps */}
+        {run.steps && run.steps.length > 0 && <StepsTimeline steps={run.steps} />}
 
         {/* Agent outputs */}
         {hasAgentOutputs ? (

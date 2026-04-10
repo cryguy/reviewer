@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { getDb } from './index.ts';
 import { createRun, getQueuedRuns, getRunningRuns, updateRunStatus } from './runs.ts';
 import type { Run } from './types.ts';
@@ -76,7 +79,7 @@ export function getQueueStatus(): QueueStatus {
   };
 }
 
-export function recoverInterruptedRuns(): Run[] {
+export function recoverInterruptedRuns(cloneBasePath?: string | null): Run[] {
   const running = getRunningRuns();
 
   if (running.length === 0) {
@@ -88,7 +91,25 @@ export function recoverInterruptedRuns(): Run[] {
     ids: running.map((r) => r.id),
   });
 
+  // Clean up partial clones for each interrupted run
+  const basePath = cloneBasePath ?? path.join(os.tmpdir(), 'reviewer-cache');
   for (const run of running) {
+    const clonePath = path.join(basePath, run.id);
+    if (fs.existsSync(clonePath)) {
+      try {
+        fs.rmSync(clonePath, { recursive: true, force: true });
+        logger.info('Cleaned up partial clone for interrupted run', {
+          runId: run.id,
+          clonePath,
+        });
+      } catch (err) {
+        logger.warn('Failed to clean up partial clone', {
+          runId: run.id,
+          clonePath,
+          error: String(err),
+        });
+      }
+    }
     updateRunStatus(run.id, 'queued');
   }
 

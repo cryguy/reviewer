@@ -18,7 +18,12 @@ const BotConfigSchema = z.object({
 });
 
 const OrchestratorConfigSchema = z.object({
-  nanogptApiKey: z.string(),
+  provider: z.enum([
+    'nanogpt', 'codex',
+    'openai', 'anthropic', 'google', 'openrouter',
+    'groq', 'mistral', 'xai',
+  ]).default('codex'),
+  apiKey: z.string().optional().default(''),
   model: z.string(),
   systemPrompt: z.string().nullable().default(null),
   repoOverrides: z.record(z.string(), z.string()).default({}),
@@ -26,7 +31,7 @@ const OrchestratorConfigSchema = z.object({
 
 const CodexAgentConfigSchema = z.object({
   model: z.string(),
-  reasoningEffort: z.enum(['low', 'medium', 'high']).default('high'),
+  reasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh']).default('high'),
   sandboxMode: z.enum(['read-only', 'full']).default('read-only'),
 });
 
@@ -44,6 +49,7 @@ const AgentsConfigSchema = z.object({
 const DashboardConfigSchema = z.object({
   port: z.number().int().positive().default(3000),
   auth: z.record(z.string(), z.string()).default({}),
+  baseUrl: z.string().optional().default(''),
 });
 
 const ConfigSchema = z.object({
@@ -85,7 +91,7 @@ function matchesGlob(value: string, pattern: string): boolean {
 // Config loader
 // ---------------------------------------------------------------------------
 
-const PROJECT_ROOT = path.resolve(import.meta.dir, '..');
+const PROJECT_ROOT = process.cwd();
 
 export function loadConfig(): Config {
   const configPath = path.join(PROJECT_ROOT, 'config.json');

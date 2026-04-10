@@ -12,7 +12,7 @@ import * as fs from 'fs';
 // Static file helpers
 // ---------------------------------------------------------------------------
 
-const DASHBOARD_DIST = path.resolve(import.meta.dir, '../../dashboard/dist');
+const DASHBOARD_DIST = path.resolve(process.cwd(), 'dashboard/dist');
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

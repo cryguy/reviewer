@@ -78,3 +78,13 @@
 .cost-tokens {
   font-size: 11px;
 }
+
+.trigger-snippet {
+  font-size: 12px;
+  max-width: 200px;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}

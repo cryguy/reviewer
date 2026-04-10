@@ -10,7 +10,6 @@ import type { Config } from '../config.ts';
 // Types
 // ---------------------------------------------------------------------------
 
-type AppConfig = Config;
 
 // ---------------------------------------------------------------------------
 // Whitelist check
@@ -41,7 +40,7 @@ export function isAlreadyProcessed(commentId: number): boolean {
 
 export async function processMention(
   mention: MentionNotification,
-  config: AppConfig,
+  config: Config,
 ): Promise<void> {
   const { prUrl, commentId, commentBody, commentAuthor } = mention;
 

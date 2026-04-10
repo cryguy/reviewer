@@ -97,7 +97,7 @@ export interface ChangedFiles {
 
 // Reactions
 
-export type ReactionContent = 'eyes' | 'rocket' | '+1' | 'heart';
+export type ReactionContent = 'eyes' | 'rocket' | '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray';
 
 // Comments / reviews
 

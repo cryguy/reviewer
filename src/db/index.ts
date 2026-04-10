@@ -6,6 +6,7 @@ export type {
   Run,
   AgentOutput,
   Review,
+  RunStep,
   ConversationMemory,
   InlineComment,
   RunWithDetails,
@@ -18,7 +19,7 @@ export type {
 // Singleton
 // ---------------------------------------------------------------------------
 
-const PROJECT_ROOT = path.resolve(import.meta.dir, '..', '..');
+const PROJECT_ROOT = process.cwd();
 
 let _db: Database | null = null;
 

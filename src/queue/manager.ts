@@ -4,12 +4,6 @@ import { logger } from '../logger.ts';
 import type { Config } from '../config.ts';
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type AppConfig = Config;
-
-// ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------
 
@@ -20,7 +14,7 @@ let _processing = false;
 // Queue processor
 // ---------------------------------------------------------------------------
 
-export function startQueueProcessor(config: AppConfig): void {
+export function startQueueProcessor(config: Config): void {
   if (_interval !== null) {
     logger.warn('Queue processor already running');
     return;

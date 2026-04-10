@@ -17,8 +17,8 @@ async function main() {
     const db = getDb();
     logger.info('Database initialized');
 
-    // 3. Recovery: find RUNNING jobs → reset to QUEUED
-    const recovered = recoverInterruptedRuns();
+    // 3. Recovery: find RUNNING jobs → clean up partial clones → reset to QUEUED
+    const recovered = recoverInterruptedRuns(config.bot.cloneBasePath);
     if (recovered.length > 0) {
       logger.info('Recovered interrupted runs', { count: recovered.length });
     }

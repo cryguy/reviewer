@@ -13,7 +13,7 @@ export function handleGetConfig(_req: Request, config: Config): Response {
     },
     orchestrator: {
       ...config.orchestrator,
-      nanogptApiKey: '***',
+      apiKey: '***',
     },
     dashboard: {
       ...config.dashboard,

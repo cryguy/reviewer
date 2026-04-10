@@ -52,7 +52,7 @@ export async function pollNotifications(
   const notifications = await githubRequestJson<GhNotification[]>(
     pat,
     'GET',
-    `/notifications?participating=true&since=${encodeURIComponent(since)}`,
+    `/notifications?participating=true&all=true&since=${encodeURIComponent(since)}`,
   );
 
   const mentions = notifications.filter(

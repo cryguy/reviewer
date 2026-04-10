@@ -66,7 +66,18 @@ export interface ConversationMemory {
   created_at: string;
 }
 
+export interface RunStep {
+  id: string;
+  run_id: string;
+  step_number: number;
+  tool_calls: string; // JSON: [{toolName, args, result}]
+  usage_input: number | null;
+  usage_output: number | null;
+  created_at: string;
+}
+
 export interface RunWithDetails extends Run {
   agent_outputs: AgentOutput[];
   review: Review | null;
+  steps: RunStep[];
 }

@@ -8,8 +8,9 @@
     "maxToolLoopSteps": 20
   },
   "orchestrator": {
-    "nanogptApiKey": "your-nanogpt-key",
-    "model": "moonshotai/kimi-k2.5:thinking",
+    "provider": "codex",
+    "apiKey": "",
+    "model": "gpt-5.4",
     "systemPrompt": null,
     "repoOverrides": {}
   },
@@ -28,6 +29,7 @@
   "whitelist": ["your-github-username"],
   "dashboard": {
     "port": 3000,
+    "baseUrl": "",
     "auth": {
       "admin": "change-me"
     }
