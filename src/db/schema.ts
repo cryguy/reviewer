@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS runs (
   timeout_minutes INTEGER NOT NULL DEFAULT 15,
   cost_usd REAL,
   total_tokens INTEGER,
-  attempt INTEGER NOT NULL DEFAULT 1
+  attempt INTEGER NOT NULL DEFAULT 1,
+  merged_comment_ids TEXT NOT NULL DEFAULT '[]'
 )`;
 
 const CREATE_AGENT_OUTPUTS = `
@@ -127,6 +128,7 @@ export function initializeDatabase(db: Database): void {
     `ALTER TABLE run_steps ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE agent_outputs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE reviews ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE runs ADD COLUMN merged_comment_ids TEXT NOT NULL DEFAULT '[]'`,
   ];
   for (const sql of migrations) {
     try { db.run(sql); } catch { /* column already exists */ }

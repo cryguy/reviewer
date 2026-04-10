@@ -404,19 +404,35 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
       total_tokens: totalTokens ?? undefined,
     });
 
-    // 10. Add success reaction (🎉)
+    // 10. Add success reaction (🎉) to trigger + all merged comments
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'hooray');
+    const mergedIds: number[] = JSON.parse(run.merged_comment_ids || '[]');
+    for (const commentId of mergedIds) {
+      try {
+        await addReaction(pat, owner, repo, commentId, 'hooray');
+      } catch {
+        // Ignore reaction failure on merged comments
+      }
+    }
 
     logger.info('Run completed successfully', { runId: run.id, totalTokens });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error('Run failed', { runId: run.id, error: errorMessage });
 
-    // Add failure reaction (😕)
+    // Add failure reaction (😕) to trigger + all merged comments
     try {
       await addReaction(pat, owner, repo, run.trigger_comment_id, 'confused');
     } catch {
       // Ignore reaction failure
+    }
+    const failMergedIds: number[] = JSON.parse(run.merged_comment_ids || '[]');
+    for (const commentId of failMergedIds) {
+      try {
+        await addReaction(pat, owner, repo, commentId, 'confused');
+      } catch {
+        // Ignore reaction failure on merged comments
+      }
     }
 
     // Post failure comment on PR

@@ -15,6 +15,7 @@ const BotConfigSchema = z.object({
   runTimeoutMinutes: z.number().int().positive().default(15),
   cloneBasePath: z.string().nullable().default(null),
   maxToolLoopSteps: z.number().int().positive().default(20),
+  maxConcurrentRuns: z.number().int().positive().default(1),
 });
 
 const OrchestratorConfigSchema = z.object({
