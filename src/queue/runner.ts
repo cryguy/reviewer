@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { parseRepoFromUrl } from '../github/client.ts';
 import { addReaction } from '../github/reactions.ts';
 import { getPrDiff, getPrComments, getPrMetadata, listChangedFiles } from '../github/pr.ts';
@@ -126,10 +127,16 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
       },
 
       spawn_claude_cli: async (input: { repo_path: string; prompt: string }) => {
+        if (!fs.existsSync(input.repo_path)) {
+          return { error: 'REPO_NOT_CLONED', message: 'Repository path does not exist. You must call clone_repo first before spawning agents.' };
+        }
         return handleSpawnClaude(input, run, config);
       },
 
       spawn_codex_cli: async (input: { repo_path: string; prompt: string }) => {
+        if (!fs.existsSync(input.repo_path)) {
+          return { error: 'REPO_NOT_CLONED', message: 'Repository path does not exist. You must call clone_repo first before spawning agents.' };
+        }
         return handleSpawnCodex(input, run, config);
       },
 
@@ -258,25 +265,48 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
     });
 
     // 8. Fallback: if the orchestrator produced text but never called
-    //    post_comment or post_review, try to parse text-based tool calls
-    //    (some models output <use_tool> XML instead of structured calls)
+    //    post_comment or post_review, retry with a follow-up turn so the
+    //    model uses the proper tool instead of dumping raw text.
     const calledCommentTool = result.steps.some((s) =>
       s.toolCalls.some((tc) => tc.toolName === 'post_comment' || tc.toolName === 'post_review'),
     );
     if (!calledCommentTool && result.text) {
-      const parsed = parseTextToolCall(result.text);
-      if (parsed?.tool === 'post_review' && parsed.args.summary) {
-        logger.info('Parsed post_review from text output, executing', { runId: run.id });
-        await postReview(
-          pat, owner, repo, number,
-          parsed.args.summary as string,
-          parsed.args.inline_comments as Array<{ path: string; line: number; body: string; side?: 'LEFT' | 'RIGHT' }> | undefined,
+      logger.info('Orchestrator did not post via tool, retrying with follow-up turn', { runId: run.id });
+
+      const retryMessages = [
+        ...messages,
+        { role: 'assistant' as const, content: result.text },
+        {
+          role: 'user' as const,
+          content: 'You produced a response but did not call post_review or post_comment. You MUST call one of those tools to post your response on the PR. Call the appropriate tool now with the response you already wrote.',
+        },
+      ];
+
+      try {
+        const retryResult = await runOrchestrator({
+          model,
+          systemPrompt,
+          messages: retryMessages,
+          tools,
+          maxSteps: 3,
+          timeoutMs: 60_000,
+          apiKey: apiKeyForAgent,
+        });
+
+        const retryCalledTool = retryResult.steps.some((s) =>
+          s.toolCalls.some((tc) => tc.toolName === 'post_comment' || tc.toolName === 'post_review'),
         );
-      } else if (parsed?.tool === 'post_comment' && parsed.args.body) {
-        logger.info('Parsed post_comment from text output, executing', { runId: run.id });
-        await postComment(pat, owner, repo, number, parsed.args.body as string);
-      } else {
-        logger.info('Posting orchestrator text as fallback comment', { runId: run.id });
+
+        if (!retryCalledTool) {
+          // Last resort: post the original text as a comment
+          logger.warn('Retry also failed to use tool, posting as fallback comment', { runId: run.id });
+          await postComment(pat, owner, repo, number, result.text);
+        }
+      } catch (retryErr) {
+        logger.warn('Follow-up retry failed, posting as fallback comment', {
+          runId: run.id,
+          error: String(retryErr),
+        });
         await postComment(pat, owner, repo, number, result.text);
       }
     }
