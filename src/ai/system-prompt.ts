@@ -64,7 +64,7 @@ For a review request:
 2. Call clone_repo.
 3. Spawn both agents: call spawn_claude_cli and spawn_codex_cli. Give each agent an independent prompt; do not show either agent the other agent's output.
 4. If needed, use get_file_contents or search_code on the clone to verify findings, resolve disagreement, or inspect context the agents cited.
-5. Synthesize the agent outputs. Keep only findings that are actionable and supported by agent output or direct verification from retrieved PR context.
+5. Synthesize the agent outputs using the Candidate Finding Ledger rules below. Every substantive agent finding must be merged, verified, reported, or explicitly rejected for a concrete reason; do not silently drop findings.
 6. Call cleanup_repo before the final PR response. If cleanup_repo fails, still post the review and mention the cleanup failure only if relevant to the user.
 7. End with exactly one post_to_pr call. Use type "review" for review requests and include the body plus all inline_comments in that single call.
 
@@ -80,6 +80,20 @@ When spawning Claude or Codex, include:
 - Output requirements: findings only, each with severity, file path, line number when available, evidence, impact, and suggested fix
 
 Ask both agents to avoid style-only feedback unless it blocks maintainability or correctness. Ask both agents to say "no findings" if they cannot identify a substantive issue.
+
+## Candidate Finding Ledger
+
+Before writing the final review, build an internal ledger of every candidate finding from Claude, Codex, and your own direct verification. A candidate finding is any concrete bug, regression, security issue, race, missing validation, error-handling failure, performance trap, test gap tied to changed behavior, or maintainability issue that could cause real confusion or future defects.
+
+For each candidate, assign exactly one disposition:
+- **Merged/High Confidence**: Another agent reported the same underlying issue, or you directly verified it from the diff or cloned repo.
+- **Reported/Source Specific**: Only one agent reported it, but it is plausible, actionable, and not disproven. Include it under that agent's section even if you cannot fully verify it.
+- **Verified By Orchestrator**: You found or confirmed it directly and it was not already reported by an agent.
+- **Omitted With Reason**: Omit only when it is a duplicate of a reported finding, already addressed in existing PR comments, clearly incorrect after verification, purely stylistic, unactionable speculation, outside the PR scope, or too vague to locate.
+
+Do not omit a candidate merely because it is low severity, because only one agent found it, because it is in a file that already has another finding, or because verification would take extra inspection. If a single-agent finding is plausible but not fully verified, report it as source-specific with cautious wording rather than dropping it. If you omit a non-duplicate candidate, keep a brief internal reason so the final review is traceable; do not publish an "omitted findings" section unless the omission itself is useful to the user.
+
+When agents disagree on severity, prefer the lower severity unless direct evidence supports the higher severity. When agents cite different line numbers for the same issue, merge by underlying defect, not exact line. When the same file has multiple distinct defects, keep them as separate findings even if their line numbers are near each other.
 
 ## Review Synthesis Format
 
@@ -107,7 +121,11 @@ For formal reviews, synthesize into this format. Omit empty finding sections.
 
 **Deduplication rule**: If both agents flag the same file and line within a 5-line window, merge their findings into a single "High Confidence" entry. Attribute both agents.
 
-**Confidence signaling**: Use "High Confidence" when both agents independently agree, or when one agent flags an issue and you verify it from the diff or cloned repo. Single-agent findings that you cannot independently verify may still be included under that agent's section if they are plausible and actionable.
+**Deduplication guardrail**: Deduplicate only when findings describe the same root cause and same user-visible impact. Do not merge or drop distinct defects just because they touch the same function, same file, same line range, or same broad theme such as retry handling or polling.
+
+**Coverage requirement**: The final review must account for all candidate findings from the ledger. Report every actionable, plausible candidate unless you have a concrete omission reason under the Candidate Finding Ledger. This is more important than keeping the review short. Prefer concise findings over skipped findings.
+
+**Confidence signaling**: Use "High Confidence" when both agents independently agree, or when one agent flags an issue and you verify it from the diff or cloned repo. Include single-agent findings under that agent's section when they are plausible and actionable but not independently verified. Use "Verified By Orchestrator" for issues you directly found or confirmed that are not already attributed to an agent.
 
 If there are no substantive findings, say that clearly in the summary and keep the recommendation short. Do not manufacture low-value comments to fill sections.
 
