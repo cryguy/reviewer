@@ -14,7 +14,7 @@ import { getCodexCredentials, getCodexApiKey } from '../ai/codex-oauth.ts';
 import { buildToolDefinitions, runOrchestrator } from '../ai/orchestrator.ts';
 import { resolveSystemPrompt } from '../config.ts';
 import { getDb, generateId } from '../db/index.ts';
-import { updateRunStatus, insertRunStep } from '../db/runs.ts';
+import { updateRunStatus, insertRunStep, insertRunEvent } from '../db/runs.ts';
 import { getMemoryForPR, addMemory } from '../db/memory.ts';
 import { logger } from '../logger.ts';
 import type { Run } from '../db/types.ts';
@@ -52,10 +52,26 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
   const pat = config.bot.githubPAT;
   let clonedRepoPath: string | null = null;
   let reviewPosted = false;
+  const attempt = run.attempt;
+
+  // Helper to emit a live event for this run+attempt
+  const emitEvent = (
+    eventType: string,
+    phase: string | null,
+    message: string | null,
+    metadata?: Record<string, unknown>,
+  ) => {
+    try {
+      insertRunEvent(run.id, attempt, eventType, phase, message, metadata);
+    } catch (err) {
+      logger.warn('Failed to insert run event', { runId: run.id, eventType, error: String(err) });
+    }
+  };
 
   try {
     // 1. Update run status -> RUNNING
     updateRunStatus(run.id, 'running');
+    emitEvent('run_start', 'initializing', `Run started (attempt ${attempt})`, { attempt });
 
     // 2. Add rocket reaction to trigger comment
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'rocket');
@@ -114,12 +130,15 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
     // 6. Wire up all 11 tool handlers (pr_url-based params per spec)
     const tools = buildToolDefinitions({
       clone_repo: async (input: { pr_url: string }) => {
+        emitEvent('phase_change', 'cloning', `Cloning repository for ${input.pr_url}`);
         const result = await cloneRepo(input, run.id, config.bot);
         clonedRepoPath = result.repo_path;
+        emitEvent('phase_change', 'cloned', 'Repository cloned', { repo_path: result.repo_path });
         return result;
       },
 
       cleanup_repo: async (input: { repo_path: string }) => {
+        emitEvent('phase_change', 'cleanup', 'Cleaning up cloned repository');
         const result = await cleanupRepo(input, config.bot);
         if (input.repo_path === clonedRepoPath) {
           clonedRepoPath = null;
@@ -131,14 +150,20 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
         if (!fs.existsSync(input.repo_path)) {
           return { error: 'REPO_NOT_CLONED', message: 'Repository path does not exist. You must call clone_repo first before spawning agents.' };
         }
-        return handleSpawnClaude(input, run, config);
+        emitEvent('agent_spawn', 'agent_running', 'Spawning Claude agent', { agent_type: 'claude' });
+        const result = await handleSpawnClaude(input, run, config);
+        emitEvent('agent_complete', 'agent_done', 'Claude agent finished', { agent_type: 'claude' });
+        return result;
       },
 
       spawn_codex_cli: async (input: { repo_path: string; prompt: string }) => {
         if (!fs.existsSync(input.repo_path)) {
           return { error: 'REPO_NOT_CLONED', message: 'Repository path does not exist. You must call clone_repo first before spawning agents.' };
         }
-        return handleSpawnCodex(input, run, config);
+        emitEvent('agent_spawn', 'agent_running', 'Spawning Codex agent', { agent_type: 'codex' });
+        const result = await handleSpawnCodex(input, run, config);
+        emitEvent('agent_complete', 'agent_done', 'Codex agent finished', { agent_type: 'codex' });
+        return result;
       },
 
       get_pr_diff: async (input: { pr_url: string }) => {
@@ -176,6 +201,7 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
         body: string;
         inline_comments?: Array<{ path: string; line: number; body: string; side?: 'LEFT' | 'RIGHT' }>;
       }) => {
+        emitEvent('phase_change', 'posting_review', 'Posting review to GitHub');
         const parsed = parseRepoFromUrl(input.pr_url);
 
         if (input.type === 'review') {
@@ -196,11 +222,12 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
           // Store review in the reviews table
           const db = getDb();
           db.query(
-            `INSERT INTO reviews (id, run_id, summary, inline_comments, comment_id, comment_url, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+            `INSERT INTO reviews (id, run_id, attempt, summary, inline_comments, comment_id, comment_url, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
           ).run(
             generateId(),
             run.id,
+            attempt,
             input.body,
             JSON.stringify(input.inline_comments ?? []),
             result.comment_id,
@@ -233,6 +260,7 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
       apiKeyForAgent = configApiKey || undefined;
     }
 
+    emitEvent('phase_change', 'orchestrating', 'Starting orchestrator', { messageCount: messages.length, maxSteps: config.bot.maxToolLoopSteps });
     logger.info('Starting orchestrator', { runId: run.id, messageCount: messages.length, maxSteps: config.bot.maxToolLoopSteps });
     let accumulatedTokens = { input: 0, output: 0 };
     let stepNumber = 0;
@@ -255,11 +283,26 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
         // Persist step to DB for dashboard visibility
         insertRunStep(
           run.id,
+          attempt,
           stepNumber,
           step.toolCalls,
           step.usage?.input ?? null,
           step.usage?.output ?? null,
         );
+
+        // Emit live event for each tool call in this step
+        for (const tc of step.toolCalls) {
+          emitEvent('tool_call_end', 'orchestrating', `Tool: ${tc.toolName}`, {
+            toolName: tc.toolName,
+            step: stepNumber,
+          });
+        }
+
+        emitEvent('step_complete', 'orchestrating', `Step ${stepNumber} complete`, {
+          step: stepNumber,
+          toolCount: step.toolCalls.length,
+          usage: step.usage ?? null,
+        });
 
         if (step.toolCalls.length > 0) {
           logger.info('Orchestrator step completed', {
@@ -359,6 +402,8 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
       total_tokens: totalTokens ?? undefined,
     });
 
+    emitEvent('run_complete', 'done', 'Run completed successfully', { totalTokens });
+
     // 10. Add success reaction (🎉)
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'hooray');
 
@@ -389,6 +434,7 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
 
     // Update status -> FAILED
     updateRunStatus(run.id, 'failed', { error: errorMessage });
+    emitEvent('run_failed', 'failed', errorMessage);
   } finally {
     // Always attempt cleanup if a repo was cloned
     if (clonedRepoPath) {
@@ -434,11 +480,12 @@ async function handleSpawnClaude(
     // Store agent output in DB
     const db = getDb();
     db.query(
-      `INSERT INTO agent_outputs (id, run_id, agent_type, prompt, raw_output, duration_ms, tokens_prompt, tokens_completion, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      `INSERT INTO agent_outputs (id, run_id, attempt, agent_type, prompt, raw_output, duration_ms, tokens_prompt, tokens_completion, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     ).run(
       generateId(),
       run.id,
+      run.attempt,
       'claude',
       params.prompt,
       text,
@@ -465,9 +512,9 @@ async function handleSpawnClaude(
     // Store failed agent output in DB
     const db = getDb();
     db.query(
-      `INSERT INTO agent_outputs (id, run_id, agent_type, prompt, raw_output, duration_ms, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-    ).run(generateId(), run.id, 'claude', params.prompt, `ERROR: ${message}`, durationMs);
+      `INSERT INTO agent_outputs (id, run_id, attempt, agent_type, prompt, raw_output, duration_ms, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    ).run(generateId(), run.id, run.attempt, 'claude', params.prompt, `ERROR: ${message}`, durationMs);
 
     return { error: { code, message }, duration_ms: durationMs };
   }
@@ -492,11 +539,12 @@ async function handleSpawnCodex(
     // Store agent output in DB
     const db = getDb();
     db.query(
-      `INSERT INTO agent_outputs (id, run_id, agent_type, prompt, raw_output, duration_ms, tokens_prompt, tokens_completion, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      `INSERT INTO agent_outputs (id, run_id, attempt, agent_type, prompt, raw_output, duration_ms, tokens_prompt, tokens_completion, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     ).run(
       generateId(),
       run.id,
+      run.attempt,
       'codex',
       params.prompt,
       text,
@@ -523,9 +571,9 @@ async function handleSpawnCodex(
     // Store failed agent output in DB
     const db = getDb();
     db.query(
-      `INSERT INTO agent_outputs (id, run_id, agent_type, prompt, raw_output, duration_ms, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-    ).run(generateId(), run.id, 'codex', params.prompt, `ERROR: ${message}`, durationMs);
+      `INSERT INTO agent_outputs (id, run_id, attempt, agent_type, prompt, raw_output, duration_ms, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    ).run(generateId(), run.id, run.attempt, 'codex', params.prompt, `ERROR: ${message}`, durationMs);
 
     return { error: { code, message }, duration_ms: durationMs };
   }

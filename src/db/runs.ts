@@ -1,5 +1,5 @@
 import { getDb, generateId } from './index.ts';
-import type { Run, AgentOutput, Review, RunStep, RunStatus, RunWithDetails } from './types.ts';
+import type { Run, AgentOutput, Review, RunStep, RunEvent, RunStatus, RunWithDetails } from './types.ts';
 import { logger } from '../logger.ts';
 
 // ---------------------------------------------------------------------------
@@ -78,28 +78,35 @@ export function getRunWithDetails(id: string): RunWithDetails | null {
 
   const agent_outputs = db
     .query<AgentOutput, [NamedBinding]>(
-      `SELECT * FROM agent_outputs WHERE run_id = $run_id ORDER BY created_at ASC`,
+      `SELECT * FROM agent_outputs WHERE run_id = $run_id AND attempt = $attempt ORDER BY created_at ASC`,
     )
-    .all({ $run_id: id });
+    .all({ $run_id: id, $attempt: run.attempt });
 
   const review =
     db
       .query<Review, [NamedBinding]>(
-        `SELECT * FROM reviews WHERE run_id = $run_id ORDER BY created_at DESC LIMIT 1`,
+        `SELECT * FROM reviews WHERE run_id = $run_id AND attempt = $attempt ORDER BY created_at DESC LIMIT 1`,
       )
-      .get({ $run_id: id }) ?? null;
+      .get({ $run_id: id, $attempt: run.attempt }) ?? null;
 
   const steps = db
     .query<RunStep, [NamedBinding]>(
-      `SELECT * FROM run_steps WHERE run_id = $run_id ORDER BY step_number ASC`,
+      `SELECT * FROM run_steps WHERE run_id = $run_id AND attempt = $attempt ORDER BY step_number ASC`,
     )
-    .all({ $run_id: id });
+    .all({ $run_id: id, $attempt: run.attempt });
 
-  return { ...run, agent_outputs, review, steps };
+  const events = db
+    .query<RunEvent, [NamedBinding]>(
+      `SELECT * FROM run_events WHERE run_id = $run_id AND attempt = $attempt ORDER BY created_at ASC`,
+    )
+    .all({ $run_id: id, $attempt: run.attempt });
+
+  return { ...run, agent_outputs, review, steps, events };
 }
 
 export function insertRunStep(
   runId: string,
+  attempt: number,
   stepNumber: number,
   toolCalls: Array<{ toolName: string; args: unknown; result?: unknown }>,
   usageInput: number | null,
@@ -107,15 +114,39 @@ export function insertRunStep(
 ): void {
   const db = getDb();
   db.query(
-    `INSERT INTO run_steps (id, run_id, step_number, tool_calls, usage_input, usage_output)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO run_steps (id, run_id, attempt, step_number, tool_calls, usage_input, usage_output)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     generateId(),
     runId,
+    attempt,
     stepNumber,
     JSON.stringify(toolCalls),
     usageInput,
     usageOutput,
+  );
+}
+
+export function insertRunEvent(
+  runId: string,
+  attempt: number,
+  eventType: string,
+  phase: string | null,
+  message: string | null,
+  metadata?: Record<string, unknown>,
+): void {
+  const db = getDb();
+  db.query(
+    `INSERT INTO run_events (id, run_id, attempt, event_type, phase, message, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    generateId(),
+    runId,
+    attempt,
+    eventType,
+    phase,
+    message,
+    JSON.stringify(metadata ?? {}),
   );
 }
 

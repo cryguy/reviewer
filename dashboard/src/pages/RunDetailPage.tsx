@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   loadCredentials,
   getRunDetail,
+  pollRunDetail,
   type RunWithDetails,
   type AgentOutput,
   type Review,
   type RunStep,
+  type RunEvent,
   type InlineComment,
 } from '../lib/api';
 import { parseUtc } from '../lib/time';
@@ -304,6 +306,101 @@ function StepsTimeline({ steps }: { steps: RunStep[] }) {
   );
 }
 
+function phaseLabel(phase: string | null): string {
+  const labels: Record<string, string> = {
+    initializing: 'Initializing',
+    cloning: 'Cloning repo',
+    cloned: 'Repo cloned',
+    orchestrating: 'Orchestrating',
+    agent_running: 'Agent running',
+    agent_done: 'Agent done',
+    posting_review: 'Posting review',
+    cleanup: 'Cleaning up',
+    done: 'Complete',
+    failed: 'Failed',
+  };
+  return phase ? labels[phase] ?? phase : '';
+}
+
+function eventIcon(eventType: string): string {
+  const icons: Record<string, string> = {
+    run_start: '\u25B6',     // ▶
+    phase_change: '\u25CF',  // ●
+    tool_call_end: '\u25A0', // ■
+    agent_spawn: '\u25B7',   // ▷
+    agent_complete: '\u25C0',// ◀
+    step_complete: '\u2713', // ✓
+    run_complete: '\u2714',  // ✔
+    run_failed: '\u2718',    // ✘
+  };
+  return icons[eventType] ?? '\u25CB'; // ○
+}
+
+function eventColor(eventType: string): string {
+  switch (eventType) {
+    case 'run_start': return 'var(--blue)';
+    case 'agent_spawn': return 'var(--blue)';
+    case 'agent_complete': return 'var(--blue)';
+    case 'run_complete': return 'var(--green)';
+    case 'run_failed': return 'var(--red)';
+    case 'step_complete': return 'var(--green)';
+    case 'tool_call_end': return 'var(--text-muted)';
+    default: return 'var(--text-secondary)';
+  }
+}
+
+function LiveTimeline({ events, isRunning }: { events: RunEvent[]; isRunning: boolean }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [events.length]);
+
+  if (events.length === 0 && !isRunning) return null;
+
+  return (
+    <div className="live-timeline-section">
+      <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>
+        Live Activity {isRunning && <span className="pulse-dot" />}
+      </div>
+      <div className="live-timeline card">
+        {events.length === 0 ? (
+          <div className="live-timeline-empty mono text-muted">Waiting for events...</div>
+        ) : (
+          events.map((evt) => (
+            <div key={evt.id} className="live-event" style={{ borderLeftColor: eventColor(evt.event_type) }}>
+              <span className="live-event-icon" style={{ color: eventColor(evt.event_type) }}>
+                {eventIcon(evt.event_type)}
+              </span>
+              <span className="live-event-phase mono">{phaseLabel(evt.phase)}</span>
+              <span className="live-event-message">{evt.message}</span>
+              <span className="live-event-time mono text-muted">
+                {new Date(evt.created_at).toLocaleTimeString('en-US', { hour12: false })}
+              </span>
+            </div>
+          ))
+        )}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
+function AttemptTabs({ current, total }: { current: number; total: number }) {
+  if (total <= 1) return null;
+  return (
+    <div className="attempt-bar">
+      <span className="section-label">Attempt</span>
+      <span className="attempt-badge mono">{current} / {total}</span>
+      {current > 1 && (
+        <span className="attempt-hint text-muted">
+          Previous {current - 1 === 1 ? 'attempt' : `${current - 1} attempts`} interrupted
+        </span>
+      )}
+    </div>
+  );
+}
+
 function DirectResponseSection({ run }: { run: RunWithDetails }) {
   if (!run.review) return null;
   return (
@@ -341,17 +438,32 @@ export default function RunDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const stopPollingRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     if (!id) return;
-    getRunDetail(loadCredentials(), id)
+    const creds = loadCredentials();
+
+    getRunDetail(creds, id)
       .then((data) => {
         setRun(data);
         setLoading(false);
+
+        // Start polling if the run is still active
+        if (data.status === 'queued' || data.status === 'running') {
+          stopPollingRef.current = pollRunDetail(creds, id, 3000, (updated) => {
+            setRun(updated);
+          });
+        }
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'Failed to load run');
         setLoading(false);
       });
+
+    return () => {
+      stopPollingRef.current?.();
+    };
   }, [id]);
 
   if (loading) {
@@ -419,6 +531,15 @@ export default function RunDetailPage() {
       </div>
 
       <div className="page-body detail-body">
+        {/* Attempt indicator */}
+        <AttemptTabs current={run.attempt} total={run.attempt} />
+
+        {/* Live activity timeline (shown for active or recently completed runs) */}
+        <LiveTimeline
+          events={run.events ?? []}
+          isRunning={run.status === 'running' || run.status === 'queued'}
+        />
+
         {/* Metadata */}
         <div className="meta-grid">
           <div className="meta-item">

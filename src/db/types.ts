@@ -24,11 +24,13 @@ export interface Run {
   timeout_minutes: number;
   cost_usd: number | null;
   total_tokens: number | null;
+  attempt: number;
 }
 
 export interface AgentOutput {
   id: string;
   run_id: string;
+  attempt: number;
   agent_type: AgentType;
   prompt: string;
   raw_output: string | null;
@@ -48,6 +50,7 @@ export interface InlineComment {
 export interface Review {
   id: string;
   run_id: string;
+  attempt: number;
   summary: string;
   inline_comments: string; // JSON-serialised InlineComment[]
   comment_id: number | null;
@@ -69,6 +72,7 @@ export interface ConversationMemory {
 export interface RunStep {
   id: string;
   run_id: string;
+  attempt: number;
   step_number: number;
   tool_calls: string; // JSON: [{toolName, args, result}]
   usage_input: number | null;
@@ -76,8 +80,31 @@ export interface RunStep {
   created_at: string;
 }
 
+export type RunEventType =
+  | 'run_start'
+  | 'phase_change'
+  | 'tool_call_start'
+  | 'tool_call_end'
+  | 'agent_spawn'
+  | 'agent_complete'
+  | 'step_complete'
+  | 'run_complete'
+  | 'run_failed';
+
+export interface RunEvent {
+  id: string;
+  run_id: string;
+  attempt: number;
+  event_type: RunEventType;
+  phase: string | null;
+  message: string | null;
+  metadata: string; // JSON
+  created_at: string;
+}
+
 export interface RunWithDetails extends Run {
   agent_outputs: AgentOutput[];
   review: Review | null;
   steps: RunStep[];
+  events: RunEvent[];
 }

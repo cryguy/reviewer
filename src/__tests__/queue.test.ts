@@ -105,12 +105,35 @@ function recoverInterruptedRuns(db: Database): Run[] {
   const running = getRunningRuns(db);
   if (running.length === 0) return [];
   for (const run of running) {
+    db.query(`UPDATE runs SET attempt = attempt + 1 WHERE id = ?`).run(run.id);
     db.query<unknown, [NamedBinding]>(
       `UPDATE runs SET status = $status WHERE id = $id`,
     ).run({ $status: 'queued', $id: run.id });
   }
   const queued = getQueuedRuns(db);
   return queued.filter((r) => running.some((orig) => orig.id === r.id));
+}
+
+function insertRunEvent(
+  db: Database,
+  runId: string,
+  attempt: number,
+  eventType: string,
+  phase: string | null,
+  message: string | null,
+  metadata?: Record<string, unknown>,
+): void {
+  db.query(
+    `INSERT INTO run_events (id, run_id, attempt, event_type, phase, message, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(generateId(), runId, attempt, eventType, phase, message, JSON.stringify(metadata ?? {}));
+}
+
+function getRunEvents(db: Database, runId: string, attempt?: number): Array<{ id: string; run_id: string; attempt: number; event_type: string; phase: string | null; message: string | null; metadata: string; created_at: string }> {
+  if (attempt !== undefined) {
+    return db.query(`SELECT * FROM run_events WHERE run_id = ? AND attempt = ? ORDER BY created_at ASC`).all(runId, attempt) as Array<{ id: string; run_id: string; attempt: number; event_type: string; phase: string | null; message: string | null; metadata: string; created_at: string }>;
+  }
+  return db.query(`SELECT * FROM run_events WHERE run_id = ? ORDER BY created_at ASC`).all(runId) as Array<{ id: string; run_id: string; attempt: number; event_type: string; phase: string | null; message: string | null; metadata: string; created_at: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +261,74 @@ describe('recoverInterruptedRuns', () => {
     for (const r of recovered) {
       expect(r.status).toBe('queued');
     }
+  });
+
+  it('increments attempt on recovery', () => {
+    const run = createRun(testDb, DEFAULT_PARAMS);
+    expect(run.attempt).toBe(1);
+
+    dequeue(testDb); // status -> running
+    const recovered = recoverInterruptedRuns(testDb);
+    expect(recovered[0]!.attempt).toBe(2);
+
+    // Second recovery should increment again
+    dequeue(testDb);
+    const recovered2 = recoverInterruptedRuns(testDb);
+    expect(recovered2[0]!.attempt).toBe(3);
+  });
+});
+
+describe('run events', () => {
+  beforeEach(() => {
+    testDb = makeDb();
+  });
+  afterEach(() => {
+    testDb.close();
+  });
+
+  it('inserts and retrieves events for a run', () => {
+    const run = createRun(testDb, DEFAULT_PARAMS);
+    insertRunEvent(testDb, run.id, 1, 'run_start', 'initializing', 'Run started');
+    insertRunEvent(testDb, run.id, 1, 'phase_change', 'cloning', 'Cloning repo');
+
+    const events = getRunEvents(testDb, run.id);
+    expect(events).toHaveLength(2);
+    expect(events[0]!.event_type).toBe('run_start');
+    expect(events[1]!.event_type).toBe('phase_change');
+    expect(events[1]!.phase).toBe('cloning');
+  });
+
+  it('filters events by attempt', () => {
+    const run = createRun(testDb, DEFAULT_PARAMS);
+
+    // Attempt 1 events
+    insertRunEvent(testDb, run.id, 1, 'run_start', 'initializing', 'Attempt 1 start');
+    insertRunEvent(testDb, run.id, 1, 'run_failed', 'failed', 'Attempt 1 failed');
+
+    // Attempt 2 events
+    insertRunEvent(testDb, run.id, 2, 'run_start', 'initializing', 'Attempt 2 start');
+    insertRunEvent(testDb, run.id, 2, 'run_complete', 'done', 'Attempt 2 done');
+
+    const allEvents = getRunEvents(testDb, run.id);
+    expect(allEvents).toHaveLength(4);
+
+    const attempt1 = getRunEvents(testDb, run.id, 1);
+    expect(attempt1).toHaveLength(2);
+    expect(attempt1[0]!.message).toBe('Attempt 1 start');
+
+    const attempt2 = getRunEvents(testDb, run.id, 2);
+    expect(attempt2).toHaveLength(2);
+    expect(attempt2[0]!.message).toBe('Attempt 2 start');
+  });
+
+  it('stores metadata as JSON', () => {
+    const run = createRun(testDb, DEFAULT_PARAMS);
+    insertRunEvent(testDb, run.id, 1, 'agent_spawn', 'agent_running', 'Spawning Claude', { agent_type: 'claude' });
+
+    const events = getRunEvents(testDb, run.id);
+    expect(events).toHaveLength(1);
+    const meta = JSON.parse(events[0]!.metadata) as Record<string, unknown>;
+    expect(meta.agent_type).toBe('claude');
   });
 });
 
