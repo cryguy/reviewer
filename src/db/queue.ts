@@ -138,6 +138,8 @@ export function recoverInterruptedRuns(cloneBasePath?: string | null): Run[] {
 
   // Clean up partial clones for each interrupted run
   const basePath = cloneBasePath ?? path.join(os.tmpdir(), 'reviewer-cache');
+  const db = getDb();
+
   for (const run of running) {
     const clonePath = path.join(basePath, run.id);
     if (fs.existsSync(clonePath)) {
@@ -155,9 +157,30 @@ export function recoverInterruptedRuns(cloneBasePath?: string | null): Run[] {
         });
       }
     }
+
+    // Check if this run already posted a review or emitted a run_complete event.
+    // If so, it actually finished — mark completed instead of re-queuing.
+    const hasReview = db
+      .query<{ id: string }, [string]>(`SELECT id FROM reviews WHERE run_id = ? LIMIT 1`)
+      .get(run.id);
+    const hasCompleteEvent = db
+      .query<{ id: string }, [string, string]>(
+        `SELECT id FROM run_events WHERE run_id = ? AND event_type = ? LIMIT 1`,
+      )
+      .get(run.id, 'run_complete');
+
+    if (hasReview || hasCompleteEvent) {
+      logger.info('Interrupted run already completed its work, marking as completed', {
+        runId: run.id,
+        hadReview: !!hasReview,
+        hadCompleteEvent: !!hasCompleteEvent,
+      });
+      db.query(`UPDATE runs SET status = 'completed', completed_at = datetime('now') WHERE id = ?`).run(run.id);
+      continue;
+    }
+
     // Atomically increment attempt + reset status so a crash between writes
     // can't leave the run in an inconsistent state.
-    const db = getDb();
     db.query(`UPDATE runs SET attempt = attempt + 1, status = 'queued' WHERE id = ?`).run(run.id);
   }
 
