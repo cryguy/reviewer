@@ -22,8 +22,8 @@ export function createCodexAgent(repoPath: string, config: CodexAgentConfig) {
     defaultSettings: {
       codexPath: resolveCodexPath(),
       cwd: repoPath,
-      sandboxMode: config.sandboxMode as any,
-      reasoningEffort: config.reasoningEffort as any,
+      sandboxMode: config.sandboxMode,
+      reasoningEffort: config.reasoningEffort,
       approvalMode: 'never',
       onSessionCreated: (s: Session) => {
         session = s;

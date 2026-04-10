@@ -31,8 +31,8 @@ const OrchestratorConfigSchema = z.object({
 
 const CodexAgentConfigSchema = z.object({
   model: z.string(),
-  reasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh']).default('high'),
-  sandboxMode: z.enum(['read-only', 'full']).default('read-only'),
+  reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh']).default('high'),
+  sandboxMode: z.enum(['read-only', 'workspace-write', 'danger-full-access', 'full-access']).default('read-only'),
 });
 
 const ClaudeAgentConfigSchema = z.object({

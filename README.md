@@ -28,7 +28,7 @@ For full architecture details see the project specification.
 
 ```bash
 # 1. Clone and install dependencies
-git clone https://github.com/your-org/reviewer
+git clone https://github.com/cryguy/reviewer
 cd reviewer
 bun install
 
@@ -61,8 +61,9 @@ Copy `config.example.json` to `config.json` and fill in the values:
 
 | Field | Description |
 |-------|-------------|
-| `nanogptApiKey` | API key for the NanoGPT inference endpoint |
-| `model` | Model ID to use for the orchestrator (e.g. `moonshotai/kimi-k2.5:thinking`) |
+| `provider` | Inference provider: `codex`, `nanogpt`, `openai`, `anthropic`, `google`, `openrouter`, `groq`, `mistral`, `xai` |
+| `apiKey` | API key for the chosen provider |
+| `model` | Model ID to use for the orchestrator |
 | `systemPrompt` | Global system prompt override; `null` uses the hardcoded default |
 | `repoOverrides` | Per-repo or per-branch system prompts — keys are `owner/repo` or `owner/repo:branch`, glob patterns supported |
 
@@ -72,7 +73,7 @@ Copy `config.example.json` to `config.json` and fill in the values:
 |-------|-------------|
 | `agents.codex.model` | Codex model ID |
 | `agents.codex.reasoningEffort` | `low`, `medium`, or `high` |
-| `agents.codex.sandboxMode` | `read-only` or `full` |
+| `agents.codex.sandboxMode` | `read-only`, `workspace-write`, or `danger-full-access` |
 | `agents.claude.model` | Claude model ID |
 | `agents.claude.allowedTools` | List of tools Claude may call (default: `["Read","Glob","Grep"]`) |
 | `agents.claude.permissionMode` | Claude permission mode (default: `bypassPermissions`) |
@@ -99,9 +100,17 @@ Once running, open `http://localhost:<port>` in your browser. Log in with any cr
 ## Development
 
 ```bash
-# Run with hot reload
+# Start backend (hot reload) + dashboard (Vite HMR)
 bun dev
+```
 
+This runs two processes concurrently:
+- **Backend** on `:3000` with `bun --watch` (auto-restarts on file changes)
+- **Dashboard** on `:5173` with Vite dev server (HMR, proxies `/api` → `:3000`)
+
+Open `http://localhost:5173` during development.
+
+```bash
 # Type-check without emitting
 bun typecheck
 
@@ -128,14 +137,6 @@ docker run -d \
   -v ./config.json:/app/config.json \
   -p 3000:3000 \
   reviewer
-```
-
-### Binary (single executable)
-
-```bash
-bun run build
-# Produces ./reviewer — copy to server and run directly
-./reviewer
 ```
 
 ## Security Note

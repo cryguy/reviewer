@@ -4,10 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run src/index.ts",
-    "dev": "bun --watch src/index.ts",
-    "build": "cd dashboard && bun install && bun run build && cd .. && bun build --compile src/index.ts --outfile reviewer",
-    "build:linux": "cd dashboard && bun install && bun run build && cd .. && bun build --compile --target=bun-linux-x64 src/index.ts --outfile reviewer",
+    "start": "cd dashboard && bun install && bun run build && cd .. && bun run src/index.ts",
+    "dev": "bun --watch src/index.ts & cd dashboard && bun install && bun run dev",
     "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {
