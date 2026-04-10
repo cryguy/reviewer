@@ -63,15 +63,24 @@ export function dequeue(activePrUrls?: Set<string>): Run | null {
 
   // Use a transaction to atomically fetch + mark as running
   const tx = db.transaction((): Run | null => {
-    // Fetch a batch of candidates — enough to find one that isn't PR-blocked
-    const candidates = db
-      .query<Run, []>(
-        `SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 10`,
-      )
-      .all();
+    let next: Run | null;
 
-    // Find the first candidate whose PR isn't already running
-    const next = candidates.find((r) => !activePrUrls?.has(r.pr_url)) ?? null;
+    if (activePrUrls && activePrUrls.size > 0) {
+      // Build parameterized exclusion to avoid SQL injection
+      const urls = [...activePrUrls];
+      const placeholders = urls.map(() => '?').join(', ');
+      next = db
+        .query<Run, string[]>(
+          `SELECT * FROM runs WHERE status = 'queued' AND pr_url NOT IN (${placeholders}) ORDER BY created_at ASC LIMIT 1`,
+        )
+        .get(...urls) ?? null;
+    } else {
+      next = db
+        .query<Run, []>(
+          `SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1`,
+        )
+        .get() ?? null;
+    }
 
     if (next === null) {
       return null;

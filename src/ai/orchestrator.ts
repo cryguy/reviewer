@@ -249,12 +249,14 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
 
   console.log(`[orchestrator] Model: ${params.model.id}, System prompt length: ${params.systemPrompt.length}, Messages: ${params.messages.length}, Tools: ${params.tools.length}, Max steps: ${params.maxSteps}, Timeout: ${params.timeoutMs}ms`);
 
-  // Tools that require a cloned repo before they can execute
-  const CLONE_DEPENDENT_TOOLS = new Set([
+  // Tools that use the cloned repo (must wait for clone_repo, must finish before cleanup_repo)
+  const REPO_USING_TOOLS = new Set([
     'spawn_claude_cli', 'spawn_codex_cli',
-    'get_file_contents', 'search_code', 'cleanup_repo',
+    'get_file_contents', 'search_code',
   ]);
   let cloneReady = false;
+  // Track in-flight repo-using tools so cleanup_repo doesn't race with them
+  let pendingRepoTools = 0;
 
   const agent = new Agent({
     initialState: {
@@ -267,12 +269,30 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
     toolExecution: 'parallel',
     getApiKey: params.apiKey ? async () => params.apiKey : undefined,
     beforeToolCall: async ({ toolCall, args }) => {
-      // Gate: block clone-dependent tools until clone_repo has completed
-      if (CLONE_DEPENDENT_TOOLS.has(toolCall.name) && !cloneReady) {
+      // Gate: block repo-using tools until clone_repo has completed
+      if (REPO_USING_TOOLS.has(toolCall.name) && !cloneReady) {
         return {
           block: true,
           reason: `Tool "${toolCall.name}" requires a cloned repository. Call clone_repo first, then retry.`,
         };
+      }
+
+      // Gate: block cleanup_repo until clone is ready AND no repo-using tools are pending
+      if (toolCall.name === 'cleanup_repo') {
+        if (!cloneReady) {
+          return { block: true, reason: 'No repository to clean up. Call clone_repo first.' };
+        }
+        if (pendingRepoTools > 0) {
+          return {
+            block: true,
+            reason: `cleanup_repo blocked: ${pendingRepoTools} repo tool(s) still running. Call cleanup_repo in a separate turn after they finish.`,
+          };
+        }
+      }
+
+      // Track pending repo-using tools for cleanup serialization
+      if (REPO_USING_TOOLS.has(toolCall.name)) {
+        pendingRepoTools++;
       }
 
       if (toolCall.name === 'post_to_pr') {
@@ -291,6 +311,10 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
       }
     },
     afterToolCall: async ({ toolCall, isError }) => {
+      // Decrement pending counter when repo-using tools finish
+      if (REPO_USING_TOOLS.has(toolCall.name)) {
+        pendingRepoTools = Math.max(0, pendingRepoTools - 1);
+      }
       // Mark clone as ready once clone_repo succeeds
       if (toolCall.name === 'clone_repo' && !isError) {
         cloneReady = true;

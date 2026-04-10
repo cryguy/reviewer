@@ -41,7 +41,16 @@ export function handleGetRuns(req: Request): Response {
 export function handleGetRunDetail(req: Request, params: { id: string }): Response {
   const url = new URL(req.url);
   const attemptParam = url.searchParams.get('attempt');
-  const selectedAttempt = attemptParam !== null ? parseInt(attemptParam, 10) : undefined;
+  let selectedAttempt: number | undefined;
+  if (attemptParam !== null) {
+    selectedAttempt = parseInt(attemptParam, 10);
+    if (!Number.isFinite(selectedAttempt) || selectedAttempt < 1) {
+      return new Response(JSON.stringify({ error: 'Invalid attempt parameter' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
 
   const run = getRunWithDetails(params.id, selectedAttempt);
 

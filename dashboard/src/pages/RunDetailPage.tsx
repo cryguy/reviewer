@@ -595,12 +595,23 @@ export default function RunDetailPage() {
   const handleAttemptSelect = (attempt: number) => {
     if (!id || !run) return;
     setSelectedAttempt(attempt);
-    // If selecting the latest attempt, use live data from polling
-    if (attempt === run.max_attempt) {
-      getRunDetail(loadCredentials(), id).then(setRun).catch(() => {});
+
+    const isLatest = attempt === run.max_attempt;
+    if (isLatest) {
+      // Resuming live view — restart polling if still active
+      const creds = loadCredentials();
+      getRunDetail(creds, id).then((data) => {
+        setRun(data);
+        if (data.status === 'queued' || data.status === 'running') {
+          startPolling(creds, id);
+        }
+      }).catch(() => {});
       return;
     }
-    // Fetch historical attempt data
+
+    // Viewing historical attempt — stop polling so it doesn't overwrite
+    stopPollingRef.current?.();
+    stopPollingRef.current = null;
     getRunDetail(loadCredentials(), id, attempt).then(setRun).catch(() => {});
   };
 

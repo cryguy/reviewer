@@ -76,8 +76,8 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
     // 2. Add rocket reaction to trigger comment
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'rocket');
 
-    // 2b. Post run link comment so the user can follow along
-    if (config.dashboard.baseUrl) {
+    // 2b. Post run link comment so the user can follow along (first attempt only)
+    if (config.dashboard.baseUrl && attempt === 1) {
       try {
         await postComment(
           pat, owner, repo, number,
@@ -418,7 +418,8 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
 
     // 10. Add success reaction (🎉) to trigger + all merged comments
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'hooray');
-    const mergedIds: number[] = JSON.parse(run.merged_comment_ids || '[]');
+    let mergedIds: number[] = [];
+    try { mergedIds = JSON.parse(run.merged_comment_ids || '[]'); } catch { /* malformed */ }
     for (const commentId of mergedIds) {
       try {
         await addReaction(pat, owner, repo, commentId, 'hooray');
@@ -438,7 +439,8 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
     } catch {
       // Ignore reaction failure
     }
-    const failMergedIds: number[] = JSON.parse(run.merged_comment_ids || '[]');
+    let failMergedIds: number[] = [];
+    try { failMergedIds = JSON.parse(run.merged_comment_ids || '[]'); } catch { /* malformed */ }
     for (const commentId of failMergedIds) {
       try {
         await addReaction(pat, owner, repo, commentId, 'confused');
