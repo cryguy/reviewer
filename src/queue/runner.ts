@@ -398,11 +398,11 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
       ? result.usage.input + result.usage.output
       : null;
 
+    emitEvent('run_complete', 'done', 'Run completed successfully', { totalTokens });
+
     updateRunStatus(run.id, 'completed', {
       total_tokens: totalTokens ?? undefined,
     });
-
-    emitEvent('run_complete', 'done', 'Run completed successfully', { totalTokens });
 
     // 10. Add success reaction (🎉)
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'hooray');
@@ -433,8 +433,8 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
     }
 
     // Update status -> FAILED
-    updateRunStatus(run.id, 'failed', { error: errorMessage });
     emitEvent('run_failed', 'failed', errorMessage);
+    updateRunStatus(run.id, 'failed', { error: errorMessage });
   } finally {
     // Always attempt cleanup if a repo was cloned
     if (clonedRepoPath) {

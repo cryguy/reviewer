@@ -210,7 +210,9 @@ export function pollRunDetail(
   onError?: (err: Error) => void,
 ): () => void {
   let stopped = false;
-  const timer = setInterval(async () => {
+  let timer: ReturnType<typeof setTimeout>;
+
+  const poll = async () => {
     if (stopped) return;
     try {
       const data = await getRunDetail(creds, id);
@@ -218,15 +220,18 @@ export function pollRunDetail(
       // Stop polling once the run is terminal
       if (data.status === 'completed' || data.status === 'failed') {
         stopped = true;
-        clearInterval(timer);
+        return;
       }
     } catch (err) {
       if (!stopped && onError) onError(err instanceof Error ? err : new Error(String(err)));
     }
-  }, intervalMs);
+    if (!stopped) timer = setTimeout(poll, intervalMs);
+  };
+
+  timer = setTimeout(poll, intervalMs);
 
   return () => {
     stopped = true;
-    clearInterval(timer);
+    clearTimeout(timer);
   };
 }

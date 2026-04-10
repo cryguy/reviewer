@@ -238,7 +238,9 @@ function historyToMessages(messages: Array<{ role: string; content: string }>): 
 export async function runOrchestrator(params: OrchestratorParams): Promise<OrchestratorResult> {
   const steps: OrchestratorStep[] = [];
   const totalUsage = { input: 0, output: 0 };
+  const MAX_COMMENTS = 5;
   let toolCallCount = 0;
+  let commentCount = 0;
   let finalText = '';
 
   // Separate conversation history from the newest user message
@@ -257,8 +259,17 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
     },
     toolExecution: 'sequential',
     getApiKey: params.apiKey ? async () => params.apiKey : undefined,
-    beforeToolCall: async ({ toolCall }) => {
-      if (toolCall.name === 'post_to_pr') return;
+    beforeToolCall: async ({ toolCall, args }) => {
+      if (toolCall.name === 'post_to_pr') {
+        const parsedArgs = args as Record<string, unknown> | undefined;
+        if (parsedArgs?.type === 'comment') {
+          commentCount++;
+          if (commentCount > MAX_COMMENTS) {
+            return { block: true, reason: `Comment limit (${MAX_COMMENTS}) reached` };
+          }
+        }
+        return;
+      }
       toolCallCount++;
       if (toolCallCount > params.maxSteps) {
         return { block: true, reason: `Tool-call limit (${params.maxSteps}) reached` };
