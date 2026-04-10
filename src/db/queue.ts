@@ -110,6 +110,10 @@ export function recoverInterruptedRuns(cloneBasePath?: string | null): Run[] {
         });
       }
     }
+    // Increment attempt so the retry is distinguishable from the interrupted one
+    const db = getDb();
+    db.query(`UPDATE runs SET attempt = attempt + 1 WHERE id = ?`).run(run.id);
+
     updateRunStatus(run.id, 'queued');
   }
 

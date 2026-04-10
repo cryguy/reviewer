@@ -181,7 +181,16 @@ export default function RunsPage() {
                         <span className="pr-number mono">#{run.pr_number}</span>
                       </div>
                     </td>
-                    <td><StatusPill status={run.status} /></td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <StatusPill status={run.status} />
+                        {run.attempt > 1 && (
+                          <span className="pill pill-queued" style={{ fontSize: 9, padding: '1px 5px' }}>
+                            retry #{run.attempt - 1}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td>
                       <span className="mono text-secondary">@{run.trigger_user}</span>
                     </td>
