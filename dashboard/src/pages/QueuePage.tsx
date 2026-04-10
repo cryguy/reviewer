@@ -1,14 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { loadCredentials, getQueue, type Run, type QueueResponse } from '../lib/api';
+import { parseUtc } from '../lib/time';
 import './QueuePage.css';
 
 const POLL_INTERVAL_MS = 3000;
-
-/** Parse a DB timestamp as UTC (SQLite datetime('now') omits the Z suffix). */
-function parseUtc(ts: string): Date {
-  return new Date(ts.endsWith('Z') ? ts : ts + 'Z');
-}
 
 function formatElapsed(startedAt: string): string {
   const diffMs = Date.now() - parseUtc(startedAt).getTime();
@@ -29,7 +25,7 @@ function formatAge(createdAt: string): string {
   return `${hrs}h ago`;
 }
 
-function RunningCard({ run, onClick }: { run: Run; onClick: () => void }) {
+function RunningCard({ run }: { run: Run }) {
   const [elapsed, setElapsed] = useState(
     run.started_at ? formatElapsed(run.started_at) : '—'
   );
@@ -43,7 +39,7 @@ function RunningCard({ run, onClick }: { run: Run; onClick: () => void }) {
   }, [run.started_at]);
 
   return (
-    <div className="running-card fade-in" onClick={onClick} style={{ cursor: 'pointer' }}>
+    <Link to={`/runs/${run.id}`} className="running-card fade-in">
       <div className="running-card-header">
         <div className="running-indicator">
           <span className="pulse-dot" />
@@ -74,13 +70,13 @@ function RunningCard({ run, onClick }: { run: Run; onClick: () => void }) {
         <span className="mono text-muted">timeout: {run.timeout_minutes}m</span>
         <span className="mono text-muted">id: {run.id.slice(0, 8)}</span>
       </div>
-    </div>
+    </Link>
   );
 }
 
-function QueuedRow({ run, position, onClick }: { run: Run; position: number; onClick: () => void }) {
+function QueuedRow({ run, position }: { run: Run; position: number }) {
   return (
-    <div className="queued-row fade-in" onClick={onClick} style={{ cursor: 'pointer' }}>
+    <Link to={`/runs/${run.id}`} className="queued-row fade-in">
       <div className="queued-position mono">#{position}</div>
       <div className="queued-body">
         <div className="queued-pr">
@@ -102,12 +98,11 @@ function QueuedRow({ run, position, onClick }: { run: Run; position: number; onC
       <div className="queued-trigger mono text-muted">
         {run.trigger_body.slice(0, 60)}
       </div>
-    </div>
+    </Link>
   );
 }
 
 export default function QueuePage() {
-  const navigate = useNavigate();
   const [data, setData] = useState<QueueResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -167,7 +162,7 @@ export default function QueuePage() {
           ) : (
             <div className="running-list">
               {data.running.map((run) => (
-                <RunningCard key={run.id} run={run} onClick={() => navigate(`/runs/${run.id}`)} />
+                <RunningCard key={run.id} run={run} />
               ))}
             </div>
           )}
@@ -189,7 +184,7 @@ export default function QueuePage() {
           ) : (
             <div className="queued-list card">
               {data.pending.map((run, i) => (
-                <QueuedRow key={run.id} run={run} position={i + 1} onClick={() => navigate(`/runs/${run.id}`)} />
+                <QueuedRow key={run.id} run={run} position={i + 1} />
               ))}
             </div>
           )}

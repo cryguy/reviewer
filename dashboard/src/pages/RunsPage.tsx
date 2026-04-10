@@ -6,12 +6,8 @@ import {
   type Run,
   type RunStatus,
 } from '../lib/api';
+import { parseUtc } from '../lib/time';
 import './RunsPage.css';
-
-/** Parse a DB timestamp as UTC (SQLite datetime('now') omits the Z suffix). */
-function parseUtc(ts: string): Date {
-  return new Date(ts.endsWith('Z') ? ts : ts + 'Z');
-}
 
 function formatDuration(run: Run): string {
   if (!run.started_at) return '—';

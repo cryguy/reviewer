@@ -9,16 +9,8 @@ import {
   type RunStep,
   type InlineComment,
 } from '../lib/api';
+import { parseUtc } from '../lib/time';
 import './RunDetailPage.css';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Parse a DB timestamp as UTC (SQLite datetime('now') omits the Z suffix). */
-function parseUtc(ts: string): Date {
-  return new Date(ts.endsWith('Z') ? ts : ts + 'Z');
-}
 
 function formatTime(iso: string): string {
   return parseUtc(iso).toLocaleString('en-US', {
@@ -114,9 +106,9 @@ function TimingBar({ run }: { run: RunWithDetails }) {
   );
 }
 
-function AgentPanel({ output, isFirst }: { output: AgentOutput; isFirst: boolean }) {
+function AgentPanel({ output }: { output: AgentOutput }) {
   const isClaude = output.agent_type === 'claude';
-  const [collapsed, setCollapsed] = useState(!isFirst);
+  const [collapsed, setCollapsed] = useState(false);
 
   const accentColor = isClaude ? 'var(--blue)' : 'var(--green)';
   const agentBg = isClaude ? 'var(--blue-bg)' : 'var(--green-bg)';
@@ -475,16 +467,16 @@ export default function RunDetailPage() {
             </div>
             <div className="agent-panels">
               {claudeOutput && (
-                <AgentPanel output={claudeOutput} isFirst={!codexOutput || true} />
+                <AgentPanel output={claudeOutput} />
               )}
               {codexOutput && (
-                <AgentPanel output={codexOutput} isFirst={!claudeOutput} />
+                <AgentPanel output={codexOutput} />
               )}
               {/* Any other outputs */}
               {run.agent_outputs
                 .filter((o) => o.agent_type !== 'claude' && o.agent_type !== 'codex')
-                .map((o, i) => (
-                  <AgentPanel key={o.id} output={o} isFirst={i === 0} />
+                .map((o) => (
+                  <AgentPanel key={o.id} output={o} />
                 ))}
             </div>
           </div>

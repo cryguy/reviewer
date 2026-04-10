@@ -33,6 +33,9 @@
   display: flex;
   flex-direction: column;
   gap: 0;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
 }
 
 .running-card-header {
@@ -124,6 +127,9 @@
   padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--border-dim);
   transition: background 0.1s;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
 }
 .queued-row:last-child {
   border-bottom: none;

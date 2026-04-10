@@ -171,6 +171,3 @@ export function getRunDetail(creds: Credentials | null, id: string): Promise<Run
   return fetchApi<RunWithDetails>(`/api/runs/${id}`, creds);
 }
 
-export function getConfig(creds: Credentials | null): Promise<unknown> {
-  return fetchApi<unknown>('/api/config', creds);
-}
