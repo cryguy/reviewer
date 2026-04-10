@@ -27,7 +27,7 @@ import type { Config } from '../config.ts';
 
 function parseTextToolCall(text: string): { tool: string; args: Record<string, unknown> } | null {
   // Match <use_tool name="...">JSON</use_tool> or <use_tool name="...">JSON (unclosed)
-  const match = text.match(/<use_tool\s+name="(post_review|post_comment)">\s*([\s\S]*?)(?:<\/use_tool>|$)/);
+  const match = text.match(/<use_tool\s+name="(post_to_pr)">\s*([\s\S]*?)(?:<\/use_tool>|$)/);
   if (!match) return null;
 
   try {
@@ -51,6 +51,7 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
   const { owner, repo, number } = parseRepoFromUrl(run.pr_url);
   const pat = config.bot.githubPAT;
   let clonedRepoPath: string | null = null;
+  let reviewPosted = false;
 
   try {
     // 1. Update run status -> RUNNING
@@ -110,7 +111,7 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
       content: `[PR: ${run.pr_url} | repo: ${owner}/${repo} | #${number} | triggered by @${run.trigger_user}]\n\n${run.trigger_body}`,
     });
 
-    // 6. Wire up all 12 tool handlers (pr_url-based params per spec)
+    // 6. Wire up all 11 tool handlers (pr_url-based params per spec)
     const tools = buildToolDefinitions({
       clone_repo: async (input: { pr_url: string }) => {
         const result = await cloneRepo(input, run.id, config.bot);
@@ -169,40 +170,47 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
         return searchCode(input);
       },
 
-      post_review: async (input: {
+      post_to_pr: async (input: {
         pr_url: string;
-        summary: string;
+        type: 'review' | 'comment';
+        body: string;
         inline_comments?: Array<{ path: string; line: number; body: string; side?: 'LEFT' | 'RIGHT' }>;
       }) => {
         const parsed = parseRepoFromUrl(input.pr_url);
 
-        // Append dashboard run link if baseUrl is configured
-        let summary = input.summary;
-        if (config.dashboard.baseUrl) {
-          summary += `\n\n---\n*[View run details](${config.dashboard.baseUrl}/runs/${run.id})*`;
+        if (input.type === 'review') {
+          // Guard: only one review per run
+          if (reviewPosted) {
+            return { skipped: true, reason: 'A review has already been posted for this run. Use type "comment" for follow-ups.' };
+          }
+
+          // Append dashboard run link if baseUrl is configured
+          let body = input.body;
+          if (config.dashboard.baseUrl) {
+            body += `\n\n---\n*[View run details](${config.dashboard.baseUrl}/runs/${run.id})*`;
+          }
+
+          const result = await postReview(pat, parsed.owner, parsed.repo, parsed.number, body, input.inline_comments);
+          reviewPosted = true;
+
+          // Store review in the reviews table
+          const db = getDb();
+          db.query(
+            `INSERT INTO reviews (id, run_id, summary, inline_comments, comment_id, comment_url, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+          ).run(
+            generateId(),
+            run.id,
+            input.body,
+            JSON.stringify(input.inline_comments ?? []),
+            result.comment_id,
+            result.comment_url,
+          );
+
+          return result;
         }
 
-        const result = await postReview(pat, parsed.owner, parsed.repo, parsed.number, summary, input.inline_comments);
-
-        // Store review in the reviews table
-        const db = getDb();
-        db.query(
-          `INSERT INTO reviews (id, run_id, summary, inline_comments, comment_id, comment_url, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-        ).run(
-          generateId(),
-          run.id,
-          input.summary,
-          JSON.stringify(input.inline_comments ?? []),
-          result.comment_id,
-          result.comment_url,
-        );
-
-        return result;
-      },
-
-      post_comment: async (input: { pr_url: string; body: string }) => {
-        const parsed = parseRepoFromUrl(input.pr_url);
+        // type === 'comment'
         return postComment(pat, parsed.owner, parsed.repo, parsed.number, input.body);
       },
     });
@@ -265,10 +273,10 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
     });
 
     // 8. Fallback: if the orchestrator produced text but never called
-    //    post_comment or post_review, retry with a follow-up turn so the
-    //    model uses the proper tool instead of dumping raw text.
+    //    post_to_pr, retry with a follow-up turn so the model uses the
+    //    proper tool instead of dumping raw text.
     const calledCommentTool = result.steps.some((s) =>
-      s.toolCalls.some((tc) => tc.toolName === 'post_comment' || tc.toolName === 'post_review'),
+      s.toolCalls.some((tc) => tc.toolName === 'post_to_pr'),
     );
     if (!calledCommentTool && result.text) {
       logger.info('Orchestrator did not post via tool, retrying with follow-up turn', { runId: run.id });
@@ -278,7 +286,7 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
         { role: 'assistant' as const, content: result.text },
         {
           role: 'user' as const,
-          content: 'You produced a response but did not call post_review or post_comment. You MUST call one of those tools to post your response on the PR. Call the appropriate tool now with the response you already wrote.',
+          content: 'You produced a response but did not call post_to_pr. You MUST call post_to_pr to post your response on the PR. Use type "review" if the response is a formal review; otherwise use type "comment". Post the response you already wrote.',
         },
       ];
 
@@ -294,7 +302,7 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
         });
 
         const retryCalledTool = retryResult.steps.some((s) =>
-          s.toolCalls.some((tc) => tc.toolName === 'post_comment' || tc.toolName === 'post_review'),
+          s.toolCalls.some((tc) => tc.toolName === 'post_to_pr'),
         );
 
         if (!retryCalledTool) {

@@ -37,7 +37,7 @@ export interface OrchestratorResult {
 }
 
 // ---------------------------------------------------------------------------
-// Tool definitions matching the spec's 12 tools exactly.
+// Tool definitions matching the spec's 11 tools exactly.
 // Parameters use pr_url (full GitHub PR URL) per spec, not owner/repo/number.
 // Real execute functions are wired in runner.ts via buildToolDefinitions().
 // ---------------------------------------------------------------------------
@@ -56,8 +56,7 @@ type ToolHandlers = {
   list_changed_files?: ToolHandler;
   get_file_contents?: ToolHandler;
   search_code?: ToolHandler;
-  post_review?: ToolHandler;
-  post_comment?: ToolHandler;
+  post_to_pr?: ToolHandler;
 };
 
 function notImplemented(name: string): ToolHandler {
@@ -181,30 +180,24 @@ export function buildToolDefinitions(handlers: ToolHandlers): AgentTool[] {
 
     // --- Actions ---
     {
-      name: 'post_review',
-      label: 'Post Review',
-      description: 'Post a review on the PR with summary and optional inline line-level comments. Use for formal code reviews.',
+      name: 'post_to_pr',
+      label: 'Post to PR',
+      description:
+        'Post to the PR. Set type to "review" for a formal code review (with optional inline comments) or "comment" for a conversational reply / follow-up. Only ONE review is allowed per run — subsequent review calls are rejected.',
       parameters: Type.Object({
         pr_url: Type.String({ description: 'Full GitHub PR URL' }),
-        summary: Type.String({ description: 'Review summary (Markdown)' }),
+        type: Type.Union([Type.Literal('review'), Type.Literal('comment')], {
+          description: '"review" for formal code reviews, "comment" for conversational replies',
+        }),
+        body: Type.String({ description: 'Review summary or comment body (Markdown)' }),
         inline_comments: Type.Optional(Type.Array(Type.Object({
           path: Type.String({ description: 'File path relative to repo root' }),
           line: Type.Integer({ description: 'Line number in the diff' }),
           body: Type.String({ description: 'Comment body (Markdown)' }),
           side: Type.Optional(Type.Union([Type.Literal('LEFT'), Type.Literal('RIGHT')], { description: 'Diff side (default RIGHT)' })),
-        }), { description: 'Inline comments on specific lines' })),
+        }), { description: 'Inline comments on specific lines (only used when type is "review")' })),
       }),
-      execute: wrapHandler(handlers.post_review ?? notImplemented('post_review')),
-    },
-    {
-      name: 'post_comment',
-      label: 'Post Comment',
-      description: 'Post a conversational comment on the PR. Use for replies, follow-ups, and acknowledgements — NOT for formal reviews.',
-      parameters: Type.Object({
-        pr_url: Type.String({ description: 'Full GitHub PR URL' }),
-        body: Type.String({ description: 'Comment body (Markdown)' }),
-      }),
-      execute: wrapHandler(handlers.post_comment ?? notImplemented('post_comment')),
+      execute: wrapHandler(handlers.post_to_pr ?? notImplemented('post_to_pr')),
     },
   ];
 }
@@ -258,7 +251,7 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
     initialState: {
       systemPrompt: params.systemPrompt,
       model: params.model,
-      thinkingLevel: 'off',
+      thinkingLevel: 'high',
       tools: params.tools,
       messages: historyToMessages(history),
     },
