@@ -8,10 +8,15 @@ import {
 } from '../lib/api';
 import './RunsPage.css';
 
+/** Parse a DB timestamp as UTC (SQLite datetime('now') omits the Z suffix). */
+function parseUtc(ts: string): Date {
+  return new Date(ts.endsWith('Z') ? ts : ts + 'Z');
+}
+
 function formatDuration(run: Run): string {
   if (!run.started_at) return '—';
-  const end = run.completed_at ? new Date(run.completed_at) : new Date();
-  const ms = end.getTime() - new Date(run.started_at).getTime();
+  const end = run.completed_at ? parseUtc(run.completed_at) : new Date();
+  const ms = end.getTime() - parseUtc(run.started_at).getTime();
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -20,14 +25,14 @@ function formatDuration(run: Run): string {
 }
 
 function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString('en-US', {
+  return parseUtc(iso).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  });
+    timeZone: 'UTC',
+  }) + ' UTC';
 }
 
 function StatusPill({ status }: { status: RunStatus }) {
