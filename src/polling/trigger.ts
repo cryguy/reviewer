@@ -72,8 +72,8 @@ export async function processMention(
     });
   }
 
-  // 4. Create a queued run
-  const run = enqueue({
+  // 4. Create a queued run (or merge into existing queued run for same PR)
+  const { run, merged } = enqueue({
     pr_url: prUrl,
     pr_number: number,
     repo: `${owner}/${repo}`,
@@ -83,10 +83,20 @@ export async function processMention(
     timeout_minutes: config.bot.runTimeoutMinutes,
   });
 
-  logger.info('Mention enqueued', {
+  if (merged) {
+    // Acknowledge the merged comment with a rocket reaction
+    try {
+      await addReaction(pat, owner, repo, commentId, 'rocket');
+    } catch {
+      // Ignore reaction failure
+    }
+  }
+
+  logger.info(merged ? 'Mention merged into queued run' : 'Mention enqueued', {
     runId: run.id,
     commentId,
     author: commentAuthor,
     prUrl,
+    merged,
   });
 }

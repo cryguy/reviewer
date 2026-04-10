@@ -4,6 +4,7 @@ import {
   loadCredentials,
   getRunDetail,
   pollRunDetail,
+  type Credentials,
   type RunWithDetails,
   type AgentOutput,
   type Review,
@@ -75,6 +76,119 @@ function renderMarkdown(text: string): string {
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={`pill pill-${status}`}>{status}</span>;
+}
+
+function useTickingElapsed(startIso: string | null, active: boolean): string {
+  const [elapsed, setElapsed] = useState('');
+  useEffect(() => {
+    if (!startIso || !active) {
+      if (startIso) setElapsed(formatDurationMs(Date.now() - parseUtc(startIso).getTime()));
+      return;
+    }
+    const tick = () => setElapsed(formatDurationMs(Date.now() - parseUtc(startIso).getTime()));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startIso, active]);
+  return elapsed;
+}
+
+function LiveStatusBanner({ run }: { run: RunWithDetails }) {
+  const isActive = run.status === 'running' || run.status === 'queued';
+  const elapsed = useTickingElapsed(run.started_at, isActive);
+
+  // Derive current phase from latest event
+  const latestPhaseEvent = [...(run.events ?? [])]
+    .reverse()
+    .find((e) => e.phase && e.phase !== 'done' && e.phase !== 'failed');
+  const currentPhase = latestPhaseEvent ? phaseLabel(latestPhaseEvent.phase) : null;
+
+  // Last activity: how long since the most recent event
+  const lastEvent = run.events?.length ? run.events[run.events.length - 1] : null;
+  const [lastActivityAgo, setLastActivityAgo] = useState('');
+  useEffect(() => {
+    if (!lastEvent || !isActive) return;
+    const tick = () => {
+      const ago = Date.now() - parseUtc(lastEvent.created_at).getTime();
+      setLastActivityAgo(formatDurationMs(ago) + ' ago');
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [lastEvent?.id, isActive]);
+
+  // Timeout progress
+  const timeoutMs = run.timeout_minutes * 60_000;
+  const elapsedMs = run.started_at ? Date.now() - parseUtc(run.started_at).getTime() : 0;
+  const timeoutPct = run.started_at ? Math.min(100, (elapsedMs / timeoutMs) * 100) : 0;
+  const timeRemainingMs = Math.max(0, timeoutMs - elapsedMs);
+  const isNearTimeout = timeoutPct > 75;
+
+  if (run.status === 'queued') {
+    return (
+      <div className="live-status-banner live-status-queued">
+        <div className="live-status-main">
+          <span className="live-status-phase">
+            <span className="pulse-dot pulse-dot-amber" /> Queued — waiting for slot
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (run.status === 'running') {
+    return (
+      <div className={`live-status-banner live-status-running${isNearTimeout ? ' live-status-danger' : ''}`}>
+        <div className="live-status-main">
+          <span className="live-status-phase">
+            <span className="pulse-dot" /> {currentPhase ?? 'Running'}
+          </span>
+          <span className="live-status-elapsed mono">{elapsed}</span>
+        </div>
+        <div className="live-status-details">
+          <span className="live-status-detail">
+            <span className="text-muted">last activity</span>{' '}
+            <span className="mono">{lastActivityAgo || '—'}</span>
+          </span>
+          <span className="live-status-detail">
+            <span className="text-muted">timeout in</span>{' '}
+            <span className={`mono${isNearTimeout ? ' text-red' : ''}`}>
+              {run.started_at ? formatDurationMs(timeRemainingMs) : '—'}
+            </span>
+          </span>
+          <span className="live-status-detail">
+            <span className="text-muted">steps</span>{' '}
+            <span className="mono">{run.steps?.length ?? 0}</span>
+          </span>
+        </div>
+        <div className="live-status-timeout-track">
+          <div
+            className={`live-status-timeout-fill${isNearTimeout ? ' live-status-timeout-danger' : ''}`}
+            style={{ width: `${timeoutPct}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Completed or failed — static summary
+  const totalDuration = run.started_at && run.completed_at
+    ? formatDurationMs(parseUtc(run.completed_at).getTime() - parseUtc(run.started_at).getTime())
+    : '—';
+
+  return (
+    <div className={`live-status-banner live-status-${run.status}`}>
+      <div className="live-status-main">
+        <span className="live-status-phase">
+          {run.status === 'completed' ? '✔ Completed' : '✘ Failed'}
+        </span>
+        <span className="live-status-elapsed mono">{totalDuration}</span>
+      </div>
+      {run.status === 'failed' && run.error && (
+        <div className="live-status-error mono">{run.error}</div>
+      )}
+    </div>
+  );
 }
 
 function TimingBar({ run }: { run: RunWithDetails }) {
@@ -367,18 +481,26 @@ function LiveTimeline({ events, isRunning }: { events: RunEvent[]; isRunning: bo
         {events.length === 0 ? (
           <div className="live-timeline-empty mono text-muted">Waiting for events...</div>
         ) : (
-          events.map((evt) => (
-            <div key={evt.id} className="live-event" style={{ borderLeftColor: eventColor(evt.event_type) }}>
-              <span className="live-event-icon" style={{ color: eventColor(evt.event_type) }}>
-                {eventIcon(evt.event_type)}
-              </span>
-              <span className="live-event-phase mono">{phaseLabel(evt.phase)}</span>
-              <span className="live-event-message">{evt.message}</span>
-              <span className="live-event-time mono text-muted">
-                {new Date(evt.created_at).toLocaleTimeString('en-US', { hour12: false })}
-              </span>
-            </div>
-          ))
+          events.map((evt, i) => {
+            const isLast = i === events.length - 1;
+            return (
+              <div
+                key={evt.id}
+                className={`live-event${isLast && isRunning ? ' live-event-active' : ''}`}
+                style={{ borderLeftColor: isLast && isRunning ? 'var(--blue)' : eventColor(evt.event_type) }}
+              >
+                <span className="live-event-icon" style={{ color: isLast && isRunning ? 'var(--blue)' : eventColor(evt.event_type) }}>
+                  {isLast && isRunning ? '' : eventIcon(evt.event_type)}
+                </span>
+                {isLast && isRunning && <span className="spinner spinner-sm" />}
+                <span className="live-event-phase mono">{phaseLabel(evt.phase)}</span>
+                <span className="live-event-message">{evt.message}</span>
+                <span className="live-event-time mono text-muted">
+                  {new Date(evt.created_at).toLocaleTimeString('en-US', { hour12: false })}
+                </span>
+              </div>
+            );
+          })
         )}
         <div ref={bottomRef} />
       </div>
@@ -386,15 +508,25 @@ function LiveTimeline({ events, isRunning }: { events: RunEvent[]; isRunning: bo
   );
 }
 
-function AttemptTabs({ current, total }: { current: number; total: number }) {
+function AttemptTabs({ selected, total, onSelect }: { selected: number; total: number; onSelect: (attempt: number) => void }) {
   if (total <= 1) return null;
   return (
     <div className="attempt-bar">
       <span className="section-label">Attempt</span>
-      <span className="attempt-badge mono">{current} / {total}</span>
-      {current > 1 && (
+      <span className="attempt-tabs">
+        {Array.from({ length: total }, (_, i) => i + 1).map((n) => (
+          <button
+            key={n}
+            className={`attempt-tab${n === selected ? ' attempt-tab-active' : ''}`}
+            onClick={() => onSelect(n)}
+          >
+            {n}
+          </button>
+        ))}
+      </span>
+      {selected < total && (
         <span className="attempt-hint text-muted">
-          Previous {current - 1 === 1 ? 'attempt' : `${current - 1} attempts`} interrupted
+          Viewing past attempt — {total} is latest
         </span>
       )}
     </div>
@@ -437,8 +569,51 @@ export default function RunDetailPage() {
   const [run, setRun] = useState<RunWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [selectedAttempt, setSelectedAttempt] = useState<number | null>(null);
 
   const stopPollingRef = useRef<(() => void) | null>(null);
+
+  const startPolling = (creds: Credentials | null, runId: string) => {
+    stopPollingRef.current?.();
+    setPollError(null);
+    stopPollingRef.current = pollRunDetail(creds, runId, 3000, (updated) => {
+      setPollError(null);
+      setRun(updated);
+    }, (_err, { fatal }) => {
+      if (fatal) {
+        setPollError('Lost connection to server');
+      }
+    });
+  };
+
+  const retryPolling = () => {
+    if (!id) return;
+    startPolling(loadCredentials(), id);
+  };
+
+  const handleAttemptSelect = (attempt: number) => {
+    if (!id || !run) return;
+    setSelectedAttempt(attempt);
+
+    const isLatest = attempt === run.max_attempt;
+    if (isLatest) {
+      // Resuming live view — restart polling if still active
+      const creds = loadCredentials();
+      getRunDetail(creds, id).then((data) => {
+        setRun(data);
+        if (data.status === 'queued' || data.status === 'running') {
+          startPolling(creds, id);
+        }
+      }).catch(() => {});
+      return;
+    }
+
+    // Viewing historical attempt — stop polling so it doesn't overwrite
+    stopPollingRef.current?.();
+    stopPollingRef.current = null;
+    getRunDetail(loadCredentials(), id, attempt).then(setRun).catch(() => {});
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -451,9 +626,7 @@ export default function RunDetailPage() {
 
         // Start polling if the run is still active
         if (data.status === 'queued' || data.status === 'running') {
-          stopPollingRef.current = pollRunDetail(creds, id, 3000, (updated) => {
-            setRun(updated);
-          });
+          startPolling(creds, id);
         }
       })
       .catch((err) => {
@@ -499,6 +672,16 @@ export default function RunDetailPage() {
 
   return (
     <>
+      {pollError && (
+        <div className="error-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>{pollError}</span>
+          <button className="btn" onClick={retryPolling}>Retry</button>
+        </div>
+      )}
+
+      {/* Live status banner — always visible for active runs */}
+      <LiveStatusBanner run={run} />
+
       {/* Header */}
       <div className="page-header">
         <div className="detail-header-left">
@@ -532,7 +715,7 @@ export default function RunDetailPage() {
 
       <div className="page-body detail-body">
         {/* Attempt indicator */}
-        <AttemptTabs current={run.attempt} total={run.attempt} />
+        <AttemptTabs selected={selectedAttempt ?? run.selected_attempt} total={run.max_attempt} onSelect={handleAttemptSelect} />
 
         {/* Live activity timeline (shown for active or recently completed runs) */}
         <LiveTimeline

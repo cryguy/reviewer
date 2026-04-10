@@ -23,6 +23,7 @@ export interface Run {
   cost_usd: number | null;
   total_tokens: number | null;
   attempt: number;
+  merged_comment_ids: string;
 }
 
 export interface AgentOutput {
@@ -105,6 +106,8 @@ export interface RunWithDetails extends Run {
   review: Review | null;
   steps: RunStep[];
   events: RunEvent[];
+  selected_attempt: number;
+  max_attempt: number;
 }
 
 export interface QueueResponse {
@@ -194,12 +197,14 @@ export function getRuns(creds: Credentials | null, filters?: RunsFilters): Promi
   return fetchApi<Run[]>(`/api/runs${qs ? `?${qs}` : ''}`, creds);
 }
 
-export function getRunDetail(creds: Credentials | null, id: string): Promise<RunWithDetails> {
-  return fetchApi<RunWithDetails>(`/api/runs/${id}`, creds);
+export function getRunDetail(creds: Credentials | null, id: string, attempt?: number): Promise<RunWithDetails> {
+  const qs = attempt !== undefined ? `?attempt=${attempt}` : '';
+  return fetchApi<RunWithDetails>(`/api/runs/${id}${qs}`, creds);
 }
 
 /**
  * Poll a run detail endpoint at `intervalMs` while the run is active.
+ * Stops automatically on terminal status, auth failure, or persistent errors.
  * Returns a cleanup function to stop polling.
  */
 export function pollRunDetail(
@@ -207,15 +212,18 @@ export function pollRunDetail(
   id: string,
   intervalMs: number,
   onUpdate: (run: RunWithDetails) => void,
-  onError?: (err: Error) => void,
+  onError?: (err: Error, opts: { consecutive: number; fatal: boolean }) => void,
 ): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout>;
+  let consecutiveErrors = 0;
+  const MAX_CONSECUTIVE_ERRORS = 3;
 
   const poll = async () => {
     if (stopped) return;
     try {
       const data = await getRunDetail(creds, id);
+      consecutiveErrors = 0;
       if (!stopped) onUpdate(data);
       // Stop polling once the run is terminal
       if (data.status === 'completed' || data.status === 'failed') {
@@ -223,7 +231,16 @@ export function pollRunDetail(
         return;
       }
     } catch (err) {
-      if (!stopped && onError) onError(err instanceof Error ? err : new Error(String(err)));
+      consecutiveErrors++;
+      const error = err instanceof Error ? err : new Error(String(err));
+      const isAuth = error.message.includes('Unauthorized');
+      const fatal = isAuth || consecutiveErrors >= MAX_CONSECUTIVE_ERRORS;
+
+      if (!stopped && onError) onError(error, { consecutive: consecutiveErrors, fatal });
+      if (fatal) {
+        stopped = true;
+        return;
+      }
     }
     if (!stopped) timer = setTimeout(poll, intervalMs);
   };

@@ -76,6 +76,18 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
     // 2. Add rocket reaction to trigger comment
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'rocket');
 
+    // 2b. Post run link comment so the user can follow along (first attempt only)
+    if (config.dashboard.baseUrl && attempt === 1) {
+      try {
+        await postComment(
+          pat, owner, repo, number,
+          `🔍 **Review started** — [follow along live](${config.dashboard.baseUrl}/runs/${run.id})`,
+        );
+      } catch {
+        logger.warn('Failed to post run link comment', { runId: run.id });
+      }
+    }
+
     // 3. Load conversation memory for this PR
     const memory = getMemoryForPR(run.pr_url);
 
@@ -404,19 +416,37 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
       total_tokens: totalTokens ?? undefined,
     });
 
-    // 10. Add success reaction (🎉)
+    // 10. Add success reaction (🎉) to trigger + all merged comments
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'hooray');
+    let mergedIds: number[] = [];
+    try { mergedIds = JSON.parse(run.merged_comment_ids || '[]'); } catch { /* malformed */ }
+    for (const commentId of mergedIds) {
+      try {
+        await addReaction(pat, owner, repo, commentId, 'hooray');
+      } catch {
+        // Ignore reaction failure on merged comments
+      }
+    }
 
     logger.info('Run completed successfully', { runId: run.id, totalTokens });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error('Run failed', { runId: run.id, error: errorMessage });
 
-    // Add failure reaction (😕)
+    // Add failure reaction (😕) to trigger + all merged comments
     try {
       await addReaction(pat, owner, repo, run.trigger_comment_id, 'confused');
     } catch {
       // Ignore reaction failure
+    }
+    let failMergedIds: number[] = [];
+    try { failMergedIds = JSON.parse(run.merged_comment_ids || '[]'); } catch { /* malformed */ }
+    for (const commentId of failMergedIds) {
+      try {
+        await addReaction(pat, owner, repo, commentId, 'confused');
+      } catch {
+        // Ignore reaction failure on merged comments
+      }
     }
 
     // Post failure comment on PR

@@ -38,8 +38,21 @@ export function handleGetRuns(req: Request): Response {
 // GET /api/runs/:id
 // ---------------------------------------------------------------------------
 
-export function handleGetRunDetail(_req: Request, params: { id: string }): Response {
-  const run = getRunWithDetails(params.id);
+export function handleGetRunDetail(req: Request, params: { id: string }): Response {
+  const url = new URL(req.url);
+  const attemptParam = url.searchParams.get('attempt');
+  let selectedAttempt: number | undefined;
+  if (attemptParam !== null) {
+    selectedAttempt = parseInt(attemptParam, 10);
+    if (!Number.isFinite(selectedAttempt) || selectedAttempt < 1) {
+      return new Response(JSON.stringify({ error: 'Invalid attempt parameter' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  const run = getRunWithDetails(params.id, selectedAttempt);
 
   if (run === null) {
     return new Response(JSON.stringify({ error: 'Run not found' }), {
