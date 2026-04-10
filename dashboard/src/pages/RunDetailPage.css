@@ -398,12 +398,33 @@
   border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
-.attempt-badge {
+.attempt-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.attempt-tab {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.attempt-tab:hover {
+  color: var(--fg);
+  border-color: var(--fg-muted);
+}
+
+.attempt-tab-active {
   color: var(--red);
-  background: var(--red-bg);
-  padding: 2px 8px;
+  border-color: var(--red);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .attempt-hint {

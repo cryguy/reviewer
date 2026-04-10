@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getDb } from './index.ts';
-import { createRun, getQueuedRuns, getRunningRuns, updateRunStatus } from './runs.ts';
+import { createRun, getRun, getQueuedRuns, getRunningRuns, updateRunStatus } from './runs.ts';
 import type { Run } from './types.ts';
 import type { CreateRunParams } from './runs.ts';
 import { logger } from '../logger.ts';
@@ -13,20 +13,65 @@ type NamedBinding = Record<string, string | number | boolean | null>;
 // Queue operations
 // ---------------------------------------------------------------------------
 
-export function enqueue(params: CreateRunParams): Run {
-  return createRun(params);
+export interface EnqueueResult {
+  run: Run;
+  merged: boolean;
 }
 
-export function dequeue(): Run | null {
+export function enqueue(params: CreateRunParams): EnqueueResult {
+  const db = getDb();
+
+  // Check for an existing queued run for the same PR
+  const existing = db
+    .query<Run, [NamedBinding]>(
+      `SELECT * FROM runs WHERE pr_url = $pr_url AND status = 'queued' ORDER BY created_at ASC LIMIT 1`,
+    )
+    .get({ $pr_url: params.pr_url });
+
+  if (existing) {
+    // Merge: append new trigger body with attribution
+    const separator = `\n\n---\n[follow-up from @${params.trigger_user}]\n`;
+    const mergedBody = existing.trigger_body + separator + params.trigger_body;
+
+    // Append new comment ID to the merged list
+    const existingIds: number[] = JSON.parse(existing.merged_comment_ids || '[]');
+    existingIds.push(params.trigger_comment_id);
+
+    db.query(
+      `UPDATE runs SET trigger_body = ?, merged_comment_ids = ? WHERE id = ?`,
+    ).run(mergedBody, JSON.stringify(existingIds), existing.id);
+
+    const updated = getRun(existing.id)!;
+    logger.info('Merged mention into existing queued run', {
+      runId: existing.id,
+      mergedCommentId: params.trigger_comment_id,
+      mergedUser: params.trigger_user,
+      totalMerged: existingIds.length,
+    });
+    return { run: updated, merged: true };
+  }
+
+  return { run: createRun(params), merged: false };
+}
+
+/**
+ * Dequeue the next eligible run. Skips runs whose pr_url is already active
+ * (PR-level serialization) to prevent concurrent reviews of the same PR.
+ */
+export function dequeue(activePrUrls?: Set<string>): Run | null {
   const db = getDb();
 
   // Use a transaction to atomically fetch + mark as running
   const tx = db.transaction((): Run | null => {
-    const next = db
+    // Fetch a batch of candidates — enough to find one that isn't PR-blocked
+    const candidates = db
       .query<Run, []>(
-        `SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1`,
+        `SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 10`,
       )
-      .get();
+      .all();
+
+    // Find the first candidate whose PR isn't already running
+    const next = candidates.find((r) => !activePrUrls?.has(r.pr_url)) ?? null;
 
     if (next === null) {
       return null;
@@ -110,11 +155,10 @@ export function recoverInterruptedRuns(cloneBasePath?: string | null): Run[] {
         });
       }
     }
-    // Increment attempt so the retry is distinguishable from the interrupted one
+    // Atomically increment attempt + reset status so a crash between writes
+    // can't leave the run in an inconsistent state.
     const db = getDb();
-    db.query(`UPDATE runs SET attempt = attempt + 1 WHERE id = ?`).run(run.id);
-
-    updateRunStatus(run.id, 'queued');
+    db.query(`UPDATE runs SET attempt = attempt + 1, status = 'queued' WHERE id = ?`).run(run.id);
   }
 
   return getQueuedRuns().filter((r) => running.some((orig) => orig.id === r.id));

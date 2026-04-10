@@ -38,8 +38,12 @@ export function handleGetRuns(req: Request): Response {
 // GET /api/runs/:id
 // ---------------------------------------------------------------------------
 
-export function handleGetRunDetail(_req: Request, params: { id: string }): Response {
-  const run = getRunWithDetails(params.id);
+export function handleGetRunDetail(req: Request, params: { id: string }): Response {
+  const url = new URL(req.url);
+  const attemptParam = url.searchParams.get('attempt');
+  const selectedAttempt = attemptParam !== null ? parseInt(attemptParam, 10) : undefined;
+
+  const run = getRunWithDetails(params.id, selectedAttempt);
 
   if (run === null) {
     return new Response(JSON.stringify({ error: 'Run not found' }), {

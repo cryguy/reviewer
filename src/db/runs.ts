@@ -68,7 +68,7 @@ export function getRun(id: string): Run | null {
   );
 }
 
-export function getRunWithDetails(id: string): RunWithDetails | null {
+export function getRunWithDetails(id: string, selectedAttempt?: number): RunWithDetails | null {
   const db = getDb();
 
   const run = getRun(id);
@@ -76,32 +76,43 @@ export function getRunWithDetails(id: string): RunWithDetails | null {
     return null;
   }
 
+  // Use the requested attempt, falling back to the current (latest) attempt
+  const attempt = selectedAttempt ?? run.attempt;
+
+  // Find the highest attempt that has any recorded data for this run
+  const maxRow = db
+    .query<{ max_attempt: number }, [NamedBinding]>(
+      `SELECT MAX(attempt) as max_attempt FROM run_events WHERE run_id = $run_id`,
+    )
+    .get({ $run_id: id });
+  const maxAttempt = Math.max(run.attempt, maxRow?.max_attempt ?? run.attempt);
+
   const agent_outputs = db
     .query<AgentOutput, [NamedBinding]>(
       `SELECT * FROM agent_outputs WHERE run_id = $run_id AND attempt = $attempt ORDER BY created_at ASC`,
     )
-    .all({ $run_id: id, $attempt: run.attempt });
+    .all({ $run_id: id, $attempt: attempt });
 
   const review =
     db
       .query<Review, [NamedBinding]>(
         `SELECT * FROM reviews WHERE run_id = $run_id AND attempt = $attempt ORDER BY created_at DESC LIMIT 1`,
       )
-      .get({ $run_id: id, $attempt: run.attempt }) ?? null;
+      .get({ $run_id: id, $attempt: attempt }) ?? null;
 
   const steps = db
     .query<RunStep, [NamedBinding]>(
       `SELECT * FROM run_steps WHERE run_id = $run_id AND attempt = $attempt ORDER BY step_number ASC`,
     )
-    .all({ $run_id: id, $attempt: run.attempt });
+    .all({ $run_id: id, $attempt: attempt });
 
   const events = db
     .query<RunEvent, [NamedBinding]>(
       `SELECT * FROM run_events WHERE run_id = $run_id AND attempt = $attempt ORDER BY created_at ASC`,
     )
-    .all({ $run_id: id, $attempt: run.attempt });
+    .all({ $run_id: id, $attempt: attempt });
 
-  return { ...run, agent_outputs, review, steps, events };
+  return { ...run, agent_outputs, review, steps, events, selected_attempt: attempt, max_attempt: maxAttempt };
 }
 
 export function insertRunStep(

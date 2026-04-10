@@ -25,6 +25,7 @@ export interface Run {
   cost_usd: number | null;
   total_tokens: number | null;
   attempt: number;
+  merged_comment_ids: string; // JSON: number[]
 }
 
 export interface AgentOutput {
@@ -107,4 +108,6 @@ export interface RunWithDetails extends Run {
   review: Review | null;
   steps: RunStep[];
   events: RunEvent[];
+  selected_attempt: number;
+  max_attempt: number;
 }
