@@ -1,11 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { loadCredentials, getQueue, type Run, type QueueResponse } from '../lib/api';
 import './QueuePage.css';
 
 const POLL_INTERVAL_MS = 3000;
 
+/** Parse a DB timestamp as UTC (SQLite datetime('now') omits the Z suffix). */
+function parseUtc(ts: string): Date {
+  return new Date(ts.endsWith('Z') ? ts : ts + 'Z');
+}
+
 function formatElapsed(startedAt: string): string {
-  const diffMs = Date.now() - new Date(startedAt).getTime();
+  const diffMs = Date.now() - parseUtc(startedAt).getTime();
   const secs = Math.floor(diffMs / 1000);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -14,7 +20,7 @@ function formatElapsed(startedAt: string): string {
 }
 
 function formatAge(createdAt: string): string {
-  const diffMs = Date.now() - new Date(createdAt).getTime();
+  const diffMs = Date.now() - parseUtc(createdAt).getTime();
   const secs = Math.floor(diffMs / 1000);
   if (secs < 60) return `${secs}s ago`;
   const mins = Math.floor(secs / 60);
@@ -23,7 +29,7 @@ function formatAge(createdAt: string): string {
   return `${hrs}h ago`;
 }
 
-function RunningCard({ run }: { run: Run }) {
+function RunningCard({ run, onClick }: { run: Run; onClick: () => void }) {
   const [elapsed, setElapsed] = useState(
     run.started_at ? formatElapsed(run.started_at) : '—'
   );
@@ -37,7 +43,7 @@ function RunningCard({ run }: { run: Run }) {
   }, [run.started_at]);
 
   return (
-    <div className="running-card fade-in">
+    <div className="running-card fade-in" onClick={onClick} style={{ cursor: 'pointer' }}>
       <div className="running-card-header">
         <div className="running-indicator">
           <span className="pulse-dot" />
@@ -53,6 +59,7 @@ function RunningCard({ run }: { run: Run }) {
             target="_blank"
             rel="noopener noreferrer"
             className="run-pr-link"
+            onClick={(e) => e.stopPropagation()}
           >
             {run.repo}#{run.pr_number}
           </a>
@@ -71,9 +78,9 @@ function RunningCard({ run }: { run: Run }) {
   );
 }
 
-function QueuedRow({ run, position }: { run: Run; position: number }) {
+function QueuedRow({ run, position, onClick }: { run: Run; position: number; onClick: () => void }) {
   return (
-    <div className="queued-row fade-in">
+    <div className="queued-row fade-in" onClick={onClick} style={{ cursor: 'pointer' }}>
       <div className="queued-position mono">#{position}</div>
       <div className="queued-body">
         <div className="queued-pr">
@@ -83,6 +90,7 @@ function QueuedRow({ run, position }: { run: Run; position: number }) {
             target="_blank"
             rel="noopener noreferrer"
             className="run-pr-link"
+            onClick={(e) => e.stopPropagation()}
           >
             {run.repo}#{run.pr_number}
           </a>
@@ -99,6 +107,7 @@ function QueuedRow({ run, position }: { run: Run; position: number }) {
 }
 
 export default function QueuePage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<QueueResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -158,7 +167,7 @@ export default function QueuePage() {
           ) : (
             <div className="running-list">
               {data.running.map((run) => (
-                <RunningCard key={run.id} run={run} />
+                <RunningCard key={run.id} run={run} onClick={() => navigate(`/runs/${run.id}`)} />
               ))}
             </div>
           )}
@@ -180,7 +189,7 @@ export default function QueuePage() {
           ) : (
             <div className="queued-list card">
               {data.pending.map((run, i) => (
-                <QueuedRow key={run.id} run={run} position={i + 1} />
+                <QueuedRow key={run.id} run={run} position={i + 1} onClick={() => navigate(`/runs/${run.id}`)} />
               ))}
             </div>
           )}

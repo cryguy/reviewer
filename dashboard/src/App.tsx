@@ -4,7 +4,6 @@ import LoginPage from './pages/LoginPage';
 import QueuePage from './pages/QueuePage';
 import RunsPage from './pages/RunsPage';
 import RunDetailPage from './pages/RunDetailPage';
-import ConfigPage from './pages/ConfigPage';
 import './styles/app.css';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -38,12 +37,6 @@ function Layout({ children }: { children: React.ReactNode }) {
           <NavLink to="/runs" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">≡</span>
             Runs
-          </NavLink>
-
-          <div className="nav-section-label" style={{ marginTop: 'var(--sp-5)' }}>System</div>
-          <NavLink to="/config" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">⚙</span>
-            Config
           </NavLink>
         </nav>
 
@@ -87,14 +80,6 @@ export default function App() {
           element={
             <RequireAuth>
               <Layout><RunDetailPage /></Layout>
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/config"
-          element={
-            <RequireAuth>
-              <Layout><ConfigPage /></Layout>
             </RequireAuth>
           }
         />
