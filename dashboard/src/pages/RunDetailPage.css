@@ -388,6 +388,109 @@
   overflow-y: auto;
 }
 
+/* Live status banner */
+.live-status-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  border-left: 3px solid var(--border-mid);
+}
+
+.live-status-running {
+  background: var(--blue-bg);
+  border-left-color: var(--blue);
+}
+
+.live-status-queued {
+  background: var(--amber-bg);
+  border-left-color: var(--amber);
+}
+
+.live-status-completed {
+  background: var(--green-bg);
+  border-left-color: var(--green);
+}
+
+.live-status-failed {
+  background: var(--red-bg);
+  border-left-color: var(--red);
+}
+
+.live-status-danger {
+  border-left-color: var(--red);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.live-status-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.live-status-phase {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.live-status-elapsed {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.live-status-details {
+  display: flex;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+}
+
+.live-status-detail {
+  font-size: 12px;
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.live-status-error {
+  font-size: 12px;
+  color: var(--red);
+  margin-top: var(--sp-1);
+}
+
+.live-status-timeout-track {
+  height: 3px;
+  background: var(--bg-raised);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: var(--sp-1);
+}
+
+.live-status-timeout-fill {
+  height: 100%;
+  background: var(--blue);
+  border-radius: 2px;
+  transition: width 1s linear;
+}
+
+.live-status-timeout-danger {
+  background: var(--red);
+}
+
+.text-red {
+  color: var(--red);
+}
+
+.pulse-dot-amber {
+  background: var(--amber);
+}
+
 /* Attempt bar */
 .attempt-bar {
   display: flex;

@@ -76,6 +76,18 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
     // 2. Add rocket reaction to trigger comment
     await addReaction(pat, owner, repo, run.trigger_comment_id, 'rocket');
 
+    // 2b. Post run link comment so the user can follow along
+    if (config.dashboard.baseUrl) {
+      try {
+        await postComment(
+          pat, owner, repo, number,
+          `🔍 **Review started** — [follow along live](${config.dashboard.baseUrl}/runs/${run.id})`,
+        );
+      } catch {
+        logger.warn('Failed to post run link comment', { runId: run.id });
+      }
+    }
+
     // 3. Load conversation memory for this PR
     const memory = getMemoryForPR(run.pr_url);
 
