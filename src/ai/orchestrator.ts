@@ -257,7 +257,8 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
     },
     toolExecution: 'sequential',
     getApiKey: params.apiKey ? async () => params.apiKey : undefined,
-    beforeToolCall: async () => {
+    beforeToolCall: async ({ toolCall }) => {
+      if (toolCall.name === 'post_to_pr') return;
       toolCallCount++;
       if (toolCallCount > params.maxSteps) {
         return { block: true, reason: `Tool-call limit (${params.maxSteps}) reached` };
