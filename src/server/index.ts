@@ -1,6 +1,6 @@
 import type { Config } from '../config.ts';
 import { logger } from '../logger.ts';
-import { authenticate, unauthorizedResponse } from './auth.ts';
+import { authenticate, unauthorizedResponse, rateLimitedResponse } from './auth.ts';
 import { Router } from './router.ts';
 import { handleGetQueue } from './api/queue.ts';
 import { handleGetRuns, handleGetRunDetail } from './api/runs.ts';
@@ -68,29 +68,13 @@ function serveStatic(urlPath: string): Response {
 }
 
 // ---------------------------------------------------------------------------
-// CORS headers
-// ---------------------------------------------------------------------------
-
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-};
-
-function addCorsHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
-  for (const [key, value] of Object.entries(CORS_HEADERS)) {
-    headers.set(key, value);
-  }
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Server lifecycle
+//
+// The dashboard SPA is served by this same origin, so CORS is not needed
+// for its own requests. A permissive `Access-Control-Allow-Origin: *` would
+// actively widen the attack surface (any site a signed-in teammate visits
+// could trigger authenticated reads), so we omit CORS entirely. Cross-origin
+// API clients are intentionally unsupported.
 // ---------------------------------------------------------------------------
 
 let server: ReturnType<typeof Bun.serve> | null = null;
@@ -113,23 +97,20 @@ export function startServer(config: Config): void {
     async fetch(req: Request): Promise<Response> {
       const url = new URL(req.url);
 
-      // Handle CORS preflight
-      if (req.method === 'OPTIONS') {
-        return addCorsHeaders(new Response(null, { status: 204 }));
-      }
-
       // API routes require Basic auth
       if (url.pathname.startsWith('/api/')) {
         // Only enforce auth if credentials are configured
         if (Object.keys(auth).length > 0) {
-          const user = authenticate(req, auth);
-          if (user === null) {
-            return addCorsHeaders(unauthorizedResponse());
+          const result = authenticate(req, auth);
+          if (result.rateLimited) {
+            return rateLimitedResponse(result.retryAfterMs);
+          }
+          if (result.user === null) {
+            return unauthorizedResponse();
           }
         }
 
-        const response = await router.handle(req);
-        return addCorsHeaders(response);
+        return router.handle(req);
       }
 
       // Non-API routes: serve static files
