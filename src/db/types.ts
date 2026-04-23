@@ -26,6 +26,9 @@ export interface Run {
   total_tokens: number | null;
   attempt: number;
   merged_comment_ids: string; // JSON: number[]
+  system_prompt: string | null;
+  orchestrator_input: string | null; // JSON: Array<{role, content}>
+  orchestrator_model: string | null;
 }
 
 export interface AgentOutput {
@@ -79,6 +82,9 @@ export interface RunStep {
   usage_input: number | null;
   usage_output: number | null;
   created_at: string;
+  assistant_text: string | null;
+  reasoning: string | null;
+  stop_reason: string | null;
 }
 
 export type RunEventType =

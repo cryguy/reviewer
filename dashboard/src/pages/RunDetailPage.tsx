@@ -342,6 +342,90 @@ interface ToolCallEntry {
   result?: unknown;
 }
 
+interface OrchestratorInputMessage {
+  role: string;
+  content: string;
+}
+
+function OrchestratorContextPanel({ run }: { run: RunWithDetails }) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  const hasAnything = run.system_prompt || run.orchestrator_input || run.orchestrator_model;
+  if (!hasAnything) return null;
+
+  let inputMessages: OrchestratorInputMessage[] = [];
+  if (run.orchestrator_input) {
+    try {
+      inputMessages = JSON.parse(run.orchestrator_input) as OrchestratorInputMessage[];
+    } catch {
+      inputMessages = [];
+    }
+  }
+
+  const systemPromptLen = run.system_prompt?.length ?? 0;
+
+  return (
+    <div className="orchestrator-context-section">
+      <div
+        className="orchestrator-context-header"
+        onClick={() => setCollapsed((c) => !c)}
+      >
+        <div className="orchestrator-context-title">
+          <span className="section-label">Orchestrator Inputs</span>
+          {run.orchestrator_model && (
+            <span className="mono text-muted orchestrator-context-model">
+              {run.orchestrator_model}
+            </span>
+          )}
+        </div>
+        <div className="orchestrator-context-meta">
+          {inputMessages.length > 0 && (
+            <span className="mono text-muted" style={{ fontSize: 11 }}>
+              {inputMessages.length} msg{inputMessages.length === 1 ? '' : 's'}
+            </span>
+          )}
+          {systemPromptLen > 0 && (
+            <span className="mono text-muted" style={{ fontSize: 11 }}>
+              sys {systemPromptLen.toLocaleString()}c
+            </span>
+          )}
+          <span className="collapse-toggle">{collapsed ? '▶ expand' : '▼ collapse'}</span>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <div className="orchestrator-context-body">
+          {run.system_prompt && (
+            <details className="prompt-details orchestrator-context-block">
+              <summary className="prompt-summary section-label">
+                System prompt ({systemPromptLen.toLocaleString()} chars)
+              </summary>
+              <pre className="agent-code">{run.system_prompt}</pre>
+            </details>
+          )}
+          {inputMessages.length > 0 && (
+            <div className="orchestrator-context-block">
+              <div className="section-label orchestrator-messages-label">
+                Input messages ({inputMessages.length})
+              </div>
+              <div className="orchestrator-messages">
+                {inputMessages.map((m, i) => (
+                  <div key={i} className={`orchestrator-message orchestrator-message-${m.role}`}>
+                    <div className="orchestrator-message-role mono">
+                      {m.role}
+                    </div>
+                    <pre className="agent-code orchestrator-message-content">{m.content}</pre>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StepsTimeline({ steps }: { steps: RunStep[] }) {
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
 
@@ -358,6 +442,9 @@ function StepsTimeline({ steps }: { steps: RunStep[] }) {
           try { toolCalls = JSON.parse(step.tool_calls) as ToolCallEntry[]; } catch { /* empty */ }
           const isExpanded = expandedStep === step.step_number;
           const totalTokens = (step.usage_input ?? 0) + (step.usage_output ?? 0);
+          const hasText = !!step.assistant_text;
+          const hasReasoning = !!step.reasoning;
+          const hasDetails = hasText || hasReasoning || toolCalls.length > 0;
 
           return (
             <div key={step.id} className="step-item card">
@@ -370,10 +457,17 @@ function StepsTimeline({ steps }: { steps: RunStep[] }) {
                   <span className="step-tools-summary mono text-muted">
                     {toolCalls.length > 0
                       ? toolCalls.map((tc) => tc.toolName).join(' → ')
-                      : '(no tool calls)'}
+                      : hasText
+                        ? '(assistant text only)'
+                        : '(no tool calls)'}
                   </span>
                 </div>
                 <div className="step-header-right">
+                  {step.stop_reason && (
+                    <span className="pill pill-queued step-stop-reason">
+                      {step.stop_reason}
+                    </span>
+                  )}
                   {totalTokens > 0 && (
                     <span className="mono text-muted" style={{ fontSize: 11 }}>
                       {(step.usage_input ?? 0).toLocaleString()} in / {(step.usage_output ?? 0).toLocaleString()} out
@@ -385,8 +479,22 @@ function StepsTimeline({ steps }: { steps: RunStep[] }) {
                 </div>
               </div>
 
-              {isExpanded && toolCalls.length > 0 && (
+              {isExpanded && hasDetails && (
                 <div className="step-details">
+                  {hasText && (
+                    <div className="step-assistant-section">
+                      <div className="section-label step-assistant-label">Assistant text</div>
+                      <pre className="agent-code step-assistant-text">{step.assistant_text}</pre>
+                    </div>
+                  )}
+                  {hasReasoning && (
+                    <details className="step-reasoning">
+                      <summary className="section-label step-reasoning-summary">
+                        Reasoning ({(step.reasoning ?? '').length.toLocaleString()} chars)
+                      </summary>
+                      <pre className="agent-code step-reasoning-body">{step.reasoning}</pre>
+                    </details>
+                  )}
                   {toolCalls.map((tc, i) => (
                     <div key={i} className="step-tool-call">
                       <div className="step-tool-name mono">{tc.toolName}</div>
@@ -759,6 +867,9 @@ export default function RunDetailPage() {
 
         {/* Timing */}
         <TimingBar run={run} />
+
+        {/* Orchestrator inputs — system prompt + messages the LLM actually saw */}
+        <OrchestratorContextPanel run={run} />
 
         {/* Orchestrator Steps */}
         {run.steps && run.steps.length > 0 && <StepsTimeline steps={run.steps} />}

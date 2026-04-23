@@ -17,6 +17,9 @@ export interface OrchestratorToolCall {
 export interface OrchestratorStep {
   toolCalls: OrchestratorToolCall[];
   usage: { input: number; output: number } | undefined;
+  assistantText: string;
+  reasoning: string | null;
+  stopReason: string | null;
 }
 
 export interface OrchestratorParams {
@@ -372,9 +375,32 @@ export async function runOrchestrator(params: OrchestratorParams): Promise<Orche
           totalUsage.input += turnUsage.input;
           totalUsage.output += turnUsage.output;
         }
+
+        // Extract the assistant's text + reasoning + stop reason for this turn.
+        // pi-ai delivers AssistantMessage.content as an array of TextContent /
+        // ThinkingContent / ToolCall — we collapse the first two into strings
+        // and drop tool calls (already captured via tool_execution_end events).
+        let assistantText = '';
+        let reasoning: string | null = null;
+        let stopReason: string | null = null;
+        if (msg) {
+          assistantText = msg.content
+            .filter((c) => c.type === 'text')
+            .map((c) => (c as { text: string }).text)
+            .join('');
+          const thinkingParts = msg.content
+            .filter((c) => c.type === 'thinking')
+            .map((c) => (c as { thinking: string }).thinking);
+          reasoning = thinkingParts.length > 0 ? thinkingParts.join('\n') : null;
+          stopReason = msg.stopReason ?? null;
+        }
+
         const step: OrchestratorStep = {
           toolCalls: [...currentTurnToolCalls],
           usage: turnUsage,
+          assistantText,
+          reasoning,
+          stopReason,
         };
         steps.push(step);
         console.log(

@@ -122,11 +122,14 @@ export function insertRunStep(
   toolCalls: Array<{ toolName: string; args: unknown; result?: unknown }>,
   usageInput: number | null,
   usageOutput: number | null,
+  assistantText: string | null,
+  reasoning: string | null,
+  stopReason: string | null,
 ): void {
   const db = getDb();
   db.query(
-    `INSERT INTO run_steps (id, run_id, attempt, step_number, tool_calls, usage_input, usage_output)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO run_steps (id, run_id, attempt, step_number, tool_calls, usage_input, usage_output, assistant_text, reasoning, stop_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     generateId(),
     runId,
@@ -135,7 +138,24 @@ export function insertRunStep(
     JSON.stringify(toolCalls),
     usageInput,
     usageOutput,
+    assistantText,
+    reasoning,
+    stopReason,
   );
+}
+
+export function updateRunOrchestratorContext(
+  runId: string,
+  systemPrompt: string,
+  orchestratorInput: Array<{ role: string; content: string }>,
+  orchestratorModel: string,
+): void {
+  const db = getDb();
+  db.query(
+    `UPDATE runs
+       SET system_prompt = ?, orchestrator_input = ?, orchestrator_model = ?
+     WHERE id = ?`,
+  ).run(systemPrompt, JSON.stringify(orchestratorInput), orchestratorModel, runId);
 }
 
 export function insertRunEvent(

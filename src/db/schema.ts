@@ -22,7 +22,10 @@ CREATE TABLE IF NOT EXISTS runs (
   cost_usd REAL,
   total_tokens INTEGER,
   attempt INTEGER NOT NULL DEFAULT 1,
-  merged_comment_ids TEXT NOT NULL DEFAULT '[]'
+  merged_comment_ids TEXT NOT NULL DEFAULT '[]',
+  system_prompt TEXT,
+  orchestrator_input TEXT,
+  orchestrator_model TEXT
 )`;
 
 const CREATE_AGENT_OUTPUTS = `
@@ -72,7 +75,10 @@ CREATE TABLE IF NOT EXISTS run_steps (
   tool_calls TEXT NOT NULL DEFAULT '[]',
   usage_input INTEGER,
   usage_output INTEGER,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  assistant_text TEXT,
+  reasoning TEXT,
+  stop_reason TEXT
 )`;
 
 const CREATE_RUN_EVENTS = `
@@ -129,6 +135,12 @@ export function initializeDatabase(db: Database): void {
     `ALTER TABLE agent_outputs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE reviews ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE runs ADD COLUMN merged_comment_ids TEXT NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE runs ADD COLUMN system_prompt TEXT`,
+    `ALTER TABLE runs ADD COLUMN orchestrator_input TEXT`,
+    `ALTER TABLE runs ADD COLUMN orchestrator_model TEXT`,
+    `ALTER TABLE run_steps ADD COLUMN assistant_text TEXT`,
+    `ALTER TABLE run_steps ADD COLUMN reasoning TEXT`,
+    `ALTER TABLE run_steps ADD COLUMN stop_reason TEXT`,
   ];
   for (const sql of migrations) {
     try { db.run(sql); } catch { /* column already exists */ }

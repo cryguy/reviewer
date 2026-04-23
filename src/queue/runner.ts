@@ -14,7 +14,7 @@ import { getCodexCredentials, getCodexApiKey } from '../ai/codex-oauth.ts';
 import { buildToolDefinitions, runOrchestrator } from '../ai/orchestrator.ts';
 import { resolveSystemPrompt } from '../config.ts';
 import { getDb, generateId } from '../db/index.ts';
-import { updateRunStatus, insertRunStep, insertRunEvent } from '../db/runs.ts';
+import { updateRunStatus, insertRunStep, insertRunEvent, updateRunOrchestratorContext } from '../db/runs.ts';
 import { getMemoryForPR, addMemory } from '../db/memory.ts';
 import { logger } from '../logger.ts';
 import type { Run, AgentOutput } from '../db/types.ts';
@@ -325,6 +325,16 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
 
     emitEvent('phase_change', 'orchestrating', 'Starting orchestrator', { messageCount: messages.length, maxSteps: config.bot.maxToolLoopSteps });
     logger.info('Starting orchestrator', { runId: run.id, messageCount: messages.length, maxSteps: config.bot.maxToolLoopSteps });
+
+    // Persist the exact system prompt + input messages + model used for this
+    // run so the dashboard can replay what the orchestrator saw. Captured once
+    // per attempt, after memory hydration + truncation, before the first LLM call.
+    try {
+      updateRunOrchestratorContext(run.id, systemPrompt, messages, `${provider}/${modelId}`);
+    } catch (err) {
+      logger.warn('Failed to persist orchestrator context', { runId: run.id, error: String(err) });
+    }
+
     let accumulatedTokens = { input: 0, output: 0 };
     let stepNumber = 0;
 
@@ -351,6 +361,9 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
           step.toolCalls,
           step.usage?.input ?? null,
           step.usage?.output ?? null,
+          step.assistantText || null,
+          step.reasoning,
+          step.stopReason,
         );
 
         // Emit live event for each tool call in this step

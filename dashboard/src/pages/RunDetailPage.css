@@ -609,3 +609,149 @@
   animation: spin 0.6s linear infinite;
   flex-shrink: 0;
 }
+
+/* Orchestrator context panel */
+.orchestrator-context-section {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-dim);
+  background: var(--bg-surface);
+}
+
+.orchestrator-context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  cursor: pointer;
+  user-select: none;
+}
+
+.orchestrator-context-header:hover {
+  background: var(--bg-raised);
+}
+
+.orchestrator-context-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.orchestrator-context-model {
+  font-size: 11px;
+}
+
+.orchestrator-context-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-shrink: 0;
+}
+
+.orchestrator-context-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  border-top: 1px solid var(--border-dim);
+  background: var(--bg-void);
+}
+
+.orchestrator-context-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.orchestrator-messages-label {
+  margin-bottom: var(--sp-1);
+}
+
+.orchestrator-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.orchestrator-message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  border-left: 2px solid var(--border-dim);
+  padding-left: var(--sp-3);
+}
+
+.orchestrator-message-user {
+  border-left-color: var(--blue);
+}
+
+.orchestrator-message-assistant {
+  border-left-color: var(--green);
+}
+
+.orchestrator-message-tool {
+  border-left-color: var(--amber);
+}
+
+.orchestrator-message-role {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.orchestrator-message-content {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Step detail additions: assistant text + reasoning + stop reason */
+.step-assistant-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.step-assistant-label {
+  color: var(--green);
+}
+
+.step-assistant-text {
+  max-height: 400px;
+  overflow-y: auto;
+  border-left: 2px solid var(--green-dim, var(--green));
+  padding-left: var(--sp-3);
+}
+
+.step-reasoning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.step-reasoning-summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-muted);
+}
+
+.step-reasoning-summary:hover {
+  color: var(--text-secondary);
+}
+
+.step-reasoning-body {
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: var(--sp-2);
+}
+
+.step-stop-reason {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
