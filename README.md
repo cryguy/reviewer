@@ -125,7 +125,7 @@ bun test
 ```bash
 npm install -g pm2
 mkdir -p logs
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 pm2 save
 ```
 

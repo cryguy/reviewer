@@ -6,7 +6,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production'
     },
-    max_memory_restart: '512M',
+    max_memory_restart: '2G',
     error_file: './logs/error.log',
     out_file: './logs/out.log',
     merge_logs: true
