@@ -17,7 +17,7 @@ import { getDb, generateId } from '../db/index.ts';
 import { updateRunStatus, insertRunStep, insertRunEvent } from '../db/runs.ts';
 import { getMemoryForPR, addMemory } from '../db/memory.ts';
 import { logger } from '../logger.ts';
-import type { Run } from '../db/types.ts';
+import type { Run, AgentOutput } from '../db/types.ts';
 import type { Config } from '../config.ts';
 
 // ---------------------------------------------------------------------------
@@ -40,6 +40,52 @@ function parseTextToolCall(text: string): { tool: string; args: Record<string, u
     return { tool: match[1]!, args };
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Raw agent review follow-up comments
+// ---------------------------------------------------------------------------
+
+// GitHub issue comment bodies cap at 65536 chars; leave headroom for the header.
+const MAX_RAW_COMMENT_LENGTH = 60000;
+
+const AGENT_LABELS: Record<string, string> = {
+  claude: "Claude's review (raw)",
+  codex: "Codex's review (raw)",
+};
+
+async function postRawAgentReviews(
+  pat: string,
+  owner: string,
+  repo: string,
+  number: number,
+  runId: string,
+  attempt: number,
+): Promise<void> {
+  const db = getDb();
+  const outputs = db.query<AgentOutput, [string, number]>(
+    `SELECT * FROM agent_outputs WHERE run_id = ? AND attempt = ? ORDER BY agent_type ASC`,
+  ).all(runId, attempt);
+
+  for (const output of outputs) {
+    if (!output.raw_output || output.raw_output.startsWith('ERROR:')) {
+      continue;
+    }
+    const label = AGENT_LABELS[output.agent_type] ?? `${output.agent_type}'s review (raw)`;
+    const body = output.raw_output.length > MAX_RAW_COMMENT_LENGTH
+      ? `${output.raw_output.slice(0, MAX_RAW_COMMENT_LENGTH)}\n\n_… (truncated; full output in the run dashboard)_`
+      : output.raw_output;
+
+    try {
+      await postComment(pat, owner, repo, number, `## ${label}\n\n${body}`);
+    } catch (err) {
+      logger.warn('Failed to post raw agent review comment', {
+        runId,
+        agentType: output.agent_type,
+        error: String(err),
+      });
+    }
   }
 }
 
@@ -245,6 +291,11 @@ export async function executeRun(run: Run, config: Config): Promise<void> {
             result.comment_id,
             result.comment_url,
           );
+
+          // Post raw Claude/Codex reviews as separate follow-up comments so
+          // users can audit the unsynthesized agent outputs. Done programmatically
+          // from the DB, not via the LLM.
+          await postRawAgentReviews(pat, parsed.owner, parsed.repo, parsed.number, run.id, attempt);
 
           return result;
         }
