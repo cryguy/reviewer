@@ -7,6 +7,46 @@ import { startPoller, stopPoller } from './polling/poller';
 import { startQueueProcessor, stopQueueProcessor } from './queue/manager';
 import { startServer, stopServer } from './server';
 
+// Swallow a known race in ai-sdk-provider-codex-app-server where a ReadableStream
+// controller is closed twice during post-run cleanup. The stack always originates
+// from that package. Anything else we still treat as fatal so PM2 can restart.
+function isKnownCodexStreamRace(err: Error & { code?: string }): boolean {
+  return (
+    err.code === 'ERR_INVALID_STATE' &&
+    typeof err.stack === 'string' &&
+    err.stack.includes('ai-sdk-provider-codex-app-server')
+  );
+}
+
+process.on('uncaughtException', (err: Error & { code?: string }) => {
+  if (isKnownCodexStreamRace(err)) {
+    logger.warn('Ignored codex provider stream-close race', { error: err.message });
+    return;
+  }
+  logger.error('Uncaught exception — exiting for PM2 restart', {
+    error: err.message,
+    code: err.code,
+    stack: err.stack,
+  });
+  setTimeout(() => process.exit(1), 100).unref();
+});
+
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  const withCode = err as Error & { code?: string };
+  if (isKnownCodexStreamRace(withCode)) {
+    logger.warn('Ignored codex provider stream-close race (unhandled rejection)', {
+      error: err.message,
+    });
+    return;
+  }
+  logger.error('Unhandled rejection — exiting for PM2 restart', {
+    reason: err.message,
+    stack: err.stack,
+  });
+  setTimeout(() => process.exit(1), 100).unref();
+});
+
 async function main() {
   try {
     // 1. Load and validate config
