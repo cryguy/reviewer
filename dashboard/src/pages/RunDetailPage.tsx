@@ -15,18 +15,9 @@ import {
 import { parseUtc } from '../lib/time';
 import './RunDetailPage.css';
 
-function formatTime(iso: string): string {
-  return parseUtc(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    timeZone: 'UTC',
-  }) + ' UTC';
-}
-
+// ---------------------------------------------------------------------------
+// Formatters
+// ---------------------------------------------------------------------------
 function formatDurationMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const secs = Math.floor(ms / 1000);
@@ -36,42 +27,52 @@ function formatDurationMs(ms: number): string {
   return `${mins}m ${rem}s`;
 }
 
-function formatRunDuration(run: RunWithDetails): string {
-  if (!run.started_at) return '—';
-  const end = run.completed_at ? parseUtc(run.completed_at) : new Date();
-  const ms = end.getTime() - parseUtc(run.started_at).getTime();
-  return formatDurationMs(ms);
-}
-
-// ---------------------------------------------------------------------------
-// Markdown renderer (simple subset — headings, bold, code, bullets)
-// ---------------------------------------------------------------------------
-
 function renderMarkdown(text: string): string {
   return text
-    // Headings
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // Code blocks
     .replace(/```[\w]*\n([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    // Inline code
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Bold
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // Italic
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Bullet lists
     .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-    // Newlines to paragraphs (crude but effective)
     .replace(/\n{2,}/g, '</p><p>')
     .replace(/^(?!<[hH\d]|<pre|<li|<\/p)(.+)$/gm, '$1')
-    .replace(/<li>[\s\S]*?(<\/li>)?/g, (m) => m) // keep lists
-    ;
+    .replace(/<li>[\s\S]*?(<\/li>)?/g, (m) => m);
+}
+
+function phaseLabel(phase: string | null): string {
+  const labels: Record<string, string> = {
+    initializing: 'Initializing',
+    cloning: 'Cloning repo',
+    cloned: 'Repo cloned',
+    orchestrating: 'Orchestrating',
+    agent_running: 'Agent running',
+    agent_done: 'Agent done',
+    posting_review: 'Posting review',
+    cleanup: 'Cleaning up',
+    done: 'Complete',
+    failed: 'Failed',
+  };
+  return phase ? labels[phase] ?? phase : 'Running';
+}
+
+function eventColor(eventType: string): string {
+  switch (eventType) {
+    case 'run_start': return 'var(--blue)';
+    case 'agent_spawn': return 'var(--blue)';
+    case 'agent_complete': return 'var(--blue)';
+    case 'run_complete': return 'var(--green)';
+    case 'run_failed': return 'var(--red)';
+    case 'step_complete': return 'var(--green)';
+    case 'tool_call_end': return 'var(--text-muted)';
+    default: return 'var(--text-secondary)';
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// Mission Control Components
 // ---------------------------------------------------------------------------
 
 function StatusBadge({ status }: { status: string }) {
@@ -93,576 +94,271 @@ function useTickingElapsed(startIso: string | null, active: boolean): string {
   return elapsed;
 }
 
-function LiveStatusBanner({ run }: { run: RunWithDetails }) {
+function MCLiveStatus({ run }: { run: RunWithDetails }) {
   const isActive = run.status === 'running' || run.status === 'queued';
   const elapsed = useTickingElapsed(run.started_at, isActive);
 
-  // Derive current phase from latest event
-  const latestPhaseEvent = [...(run.events ?? [])]
-    .reverse()
-    .find((e) => e.phase && e.phase !== 'done' && e.phase !== 'failed');
+  const latestPhaseEvent = [...(run.events ?? [])].reverse().find((e) => e.phase && e.phase !== 'done' && e.phase !== 'failed');
   const currentPhase = latestPhaseEvent ? phaseLabel(latestPhaseEvent.phase) : null;
 
-  // Last activity: how long since the most recent event
-  const lastEvent = run.events?.length ? run.events[run.events.length - 1] : null;
-  const [lastActivityAgo, setLastActivityAgo] = useState('');
-  useEffect(() => {
-    if (!lastEvent || !isActive) return;
-    const tick = () => {
-      const ago = Date.now() - parseUtc(lastEvent.created_at).getTime();
-      setLastActivityAgo(formatDurationMs(ago) + ' ago');
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [lastEvent?.id, isActive]);
-
-  // Timeout progress
-  const timeoutMs = run.timeout_minutes * 60_000;
-  const elapsedMs = run.started_at ? Date.now() - parseUtc(run.started_at).getTime() : 0;
-  const timeoutPct = run.started_at ? Math.min(100, (elapsedMs / timeoutMs) * 100) : 0;
-  const timeRemainingMs = Math.max(0, timeoutMs - elapsedMs);
-  const isNearTimeout = timeoutPct > 75;
-
-  if (run.status === 'queued') {
-    return (
-      <div className="live-status-banner live-status-queued">
-        <div className="live-status-main">
-          <span className="live-status-phase">
-            <span className="pulse-dot pulse-dot-amber" /> Queued — waiting for slot
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  if (run.status === 'running') {
-    return (
-      <div className={`live-status-banner live-status-running${isNearTimeout ? ' live-status-danger' : ''}`}>
-        <div className="live-status-main">
-          <span className="live-status-phase">
-            <span className="pulse-dot" /> {currentPhase ?? 'Running'}
-          </span>
-          <span className="live-status-elapsed mono">{elapsed}</span>
-        </div>
-        <div className="live-status-details">
-          <span className="live-status-detail">
-            <span className="text-muted">last activity</span>{' '}
-            <span className="mono">{lastActivityAgo || '—'}</span>
-          </span>
-          <span className="live-status-detail">
-            <span className="text-muted">timeout in</span>{' '}
-            <span className={`mono${isNearTimeout ? ' text-red' : ''}`}>
-              {run.started_at ? formatDurationMs(timeRemainingMs) : '—'}
-            </span>
-          </span>
-          <span className="live-status-detail">
-            <span className="text-muted">steps</span>{' '}
-            <span className="mono">{run.steps?.length ?? 0}</span>
-          </span>
-        </div>
-        <div className="live-status-timeout-track">
-          <div
-            className={`live-status-timeout-fill${isNearTimeout ? ' live-status-timeout-danger' : ''}`}
-            style={{ width: `${timeoutPct}%` }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Completed or failed — static summary
   const totalDuration = run.started_at && run.completed_at
     ? formatDurationMs(parseUtc(run.completed_at).getTime() - parseUtc(run.started_at).getTime())
-    : '—';
+    : elapsed;
+
+  let headerPhase = 'Queued';
+  if (run.status === 'running') headerPhase = currentPhase ?? 'Running';
+  if (run.status === 'completed') headerPhase = 'Mission Accomplished';
+  if (run.status === 'failed') headerPhase = 'Mission Failed';
 
   return (
-    <div className={`live-status-banner live-status-${run.status}`}>
-      <div className="live-status-main">
-        <span className="live-status-phase">
-          {run.status === 'completed' ? '✔ Completed' : '✘ Failed'}
+    <div className={`mc-live-status ${run.status}`}>
+      <div className="mc-status-header">
+        <span className="mc-status-phase">
+          {isActive && <span className="pulse-dot" style={{ background: run.status === 'queued' ? 'var(--gray)' : 'var(--amber)' }} />}
+          {headerPhase}
         </span>
-        <span className="live-status-elapsed mono">{totalDuration}</span>
+        <span className="mc-status-time">{totalDuration || '—'}</span>
       </div>
-      {run.status === 'failed' && run.error && (
-        <div className="live-status-error mono">{run.error}</div>
-      )}
-    </div>
-  );
-}
-
-function TimingBar({ run }: { run: RunWithDetails }) {
-  return (
-    <div className="timing-bar card">
-      <div className="timing-step">
-        <div className="timing-step-label section-label">Queued</div>
-        <div className="timing-step-time mono">{formatTime(run.created_at)}</div>
-      </div>
-      <div className="timing-arrow">→</div>
-      <div className="timing-step">
-        <div className="timing-step-label section-label">Started</div>
-        <div className="timing-step-time mono">
-          {run.started_at ? formatTime(run.started_at) : '—'}
+      <div className="mc-status-metrics">
+        <div className="mc-metric">
+          <span className="mc-metric-label">Target Repo</span>
+          <span className="mc-metric-value">{run.repo.split('/')[1] || run.repo}</span>
         </div>
-      </div>
-      <div className="timing-arrow">→</div>
-      <div className="timing-step">
-        <div className="timing-step-label section-label">Finished</div>
-        <div className="timing-step-time mono">
-          {run.completed_at ? formatTime(run.completed_at) : '—'}
-        </div>
-      </div>
-      <div className="timing-duration">
-        <div className="timing-step-label section-label">Total</div>
-        <div className="timing-step-time mono" style={{ color: 'var(--text-primary)', fontSize: 15 }}>
-          {formatRunDuration(run)}
+        <div className="mc-metric">
+          <span className="mc-metric-label">Operator</span>
+          <span className="mc-metric-value">@{run.trigger_user}</span>
         </div>
       </div>
     </div>
   );
 }
 
-function AgentPanel({ output }: { output: AgentOutput }) {
-  const isClaude = output.agent_type === 'claude';
-  const [collapsed, setCollapsed] = useState(false);
-
-  const accentColor = isClaude ? 'var(--blue)' : 'var(--green)';
-  const agentBg = isClaude ? 'var(--blue-bg)' : 'var(--green-bg)';
-  const agentEmoji = isClaude ? '🔵' : '🟢';
-  const totalTokens =
-    (output.tokens_prompt ?? 0) + (output.tokens_completion ?? 0);
-
-  return (
-    <div
-      className="agent-panel card"
-      style={{ borderColor: isClaude ? 'var(--blue-dim)' : 'var(--green-dim)' }}
-    >
-      <div
-        className="agent-panel-header"
-        style={{ background: agentBg, borderBottom: `1px solid var(--border-dim)` }}
-        onClick={() => setCollapsed((c) => !c)}
-      >
-        <div className="agent-panel-title">
-          <span>{agentEmoji}</span>
-          <span className="agent-name" style={{ color: accentColor }}>
-            {output.agent_type.toUpperCase()}
-          </span>
-        </div>
-        <div className="agent-panel-meta">
-          {output.duration_ms !== null && (
-            <span className="mono text-muted" style={{ fontSize: 12 }}>
-              {formatDurationMs(output.duration_ms)}
-            </span>
-          )}
-          {totalTokens > 0 && (
-            <span className="mono text-muted" style={{ fontSize: 12 }}>
-              {totalTokens.toLocaleString()} tok
-            </span>
-          )}
-          <span className="collapse-toggle" style={{ color: accentColor }}>
-            {collapsed ? '▶ expand' : '▼ collapse'}
-          </span>
-        </div>
-      </div>
-
-      {!collapsed && (
-        <div className="agent-panel-body">
-          {output.prompt && (
-            <details className="prompt-details">
-              <summary className="prompt-summary section-label">Prompt</summary>
-              <pre className="agent-code">{output.prompt}</pre>
-            </details>
-          )}
-          <div className="agent-output-label section-label">Raw Output</div>
-          <pre className="agent-code agent-output">
-            {output.raw_output ?? '(no output)'}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ReviewSection({ review }: { review: Review }) {
-  let inlineComments: InlineComment[] = [];
-  try {
-    inlineComments = JSON.parse(review.inline_comments) as InlineComment[];
-  } catch {
-    inlineComments = [];
-  }
-
-  return (
-    <div className="review-section">
-      <div className="section-header-row">
-        <div className="section-label">Synthesized Review</div>
-        {review.comment_url && (
-          <a
-            href={review.comment_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn"
-            style={{ fontSize: 11 }}
-          >
-            ↗ View on GitHub
-          </a>
-        )}
-      </div>
-
-      <div
-        className="review-body card"
-        dangerouslySetInnerHTML={{ __html: '<p>' + renderMarkdown(review.summary) + '</p>' }}
-      />
-
-      {inlineComments.length > 0 && (
-        <div className="inline-comments">
-          <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>
-            Inline Comments ({inlineComments.length})
-          </div>
-          {inlineComments.map((c, i) => (
-            <div key={i} className="inline-comment card">
-              <div className="inline-comment-header">
-                <span className="mono text-blue">{c.path}</span>
-                <span className="mono text-muted">L{c.line}</span>
-                {c.side && (
-                  <span className="pill pill-queued" style={{ fontSize: 9 }}>{c.side}</span>
-                )}
-              </div>
-              <div className="inline-comment-body">{c.body}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface ToolCallEntry {
-  toolName: string;
-  args: Record<string, unknown>;
-  result?: unknown;
-}
-
-interface OrchestratorInputMessage {
-  role: string;
-  content: string;
-}
-
-function OrchestratorContextPanel({ run }: { run: RunWithDetails }) {
-  const [collapsed, setCollapsed] = useState(true);
-
-  const hasAnything = run.system_prompt || run.orchestrator_input || run.orchestrator_model;
-  if (!hasAnything) return null;
-
-  let inputMessages: OrchestratorInputMessage[] = [];
-  if (run.orchestrator_input) {
-    try {
-      inputMessages = JSON.parse(run.orchestrator_input) as OrchestratorInputMessage[];
-    } catch {
-      inputMessages = [];
-    }
-  }
-
-  const systemPromptLen = run.system_prompt?.length ?? 0;
-
-  return (
-    <div className="orchestrator-context-section">
-      <div
-        className="orchestrator-context-header"
-        onClick={() => setCollapsed((c) => !c)}
-      >
-        <div className="orchestrator-context-title">
-          <span className="section-label">Orchestrator Inputs</span>
-          {run.orchestrator_model && (
-            <span className="mono text-muted orchestrator-context-model">
-              {run.orchestrator_model}
-            </span>
-          )}
-        </div>
-        <div className="orchestrator-context-meta">
-          {inputMessages.length > 0 && (
-            <span className="mono text-muted" style={{ fontSize: 11 }}>
-              {inputMessages.length} msg{inputMessages.length === 1 ? '' : 's'}
-            </span>
-          )}
-          {systemPromptLen > 0 && (
-            <span className="mono text-muted" style={{ fontSize: 11 }}>
-              sys {systemPromptLen.toLocaleString()}c
-            </span>
-          )}
-          <span className="collapse-toggle">{collapsed ? '▶ expand' : '▼ collapse'}</span>
-        </div>
-      </div>
-
-      {!collapsed && (
-        <div className="orchestrator-context-body">
-          {run.system_prompt && (
-            <details className="prompt-details orchestrator-context-block">
-              <summary className="prompt-summary section-label">
-                System prompt ({systemPromptLen.toLocaleString()} chars)
-              </summary>
-              <pre className="agent-code">{run.system_prompt}</pre>
-            </details>
-          )}
-          {inputMessages.length > 0 && (
-            <div className="orchestrator-context-block">
-              <div className="section-label orchestrator-messages-label">
-                Input messages ({inputMessages.length})
-              </div>
-              <div className="orchestrator-messages">
-                {inputMessages.map((m, i) => (
-                  <div key={i} className={`orchestrator-message orchestrator-message-${m.role}`}>
-                    <div className="orchestrator-message-role mono">
-                      {m.role}
-                    </div>
-                    <pre className="agent-code orchestrator-message-content">{m.content}</pre>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function StepsTimeline({ steps }: { steps: RunStep[] }) {
-  const [expandedStep, setExpandedStep] = useState<number | null>(null);
-
-  if (steps.length === 0) return null;
-
-  return (
-    <div className="steps-section">
-      <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>
-        Orchestrator Steps ({steps.length})
-      </div>
-      <div className="steps-timeline">
-        {steps.map((step) => {
-          let toolCalls: ToolCallEntry[] = [];
-          try { toolCalls = JSON.parse(step.tool_calls) as ToolCallEntry[]; } catch { /* empty */ }
-          const isExpanded = expandedStep === step.step_number;
-          const totalTokens = (step.usage_input ?? 0) + (step.usage_output ?? 0);
-          const hasText = !!step.assistant_text;
-          const hasReasoning = !!step.reasoning;
-          const hasDetails = hasText || hasReasoning || toolCalls.length > 0;
-
-          return (
-            <div key={step.id} className="step-item card">
-              <div
-                className="step-header"
-                onClick={() => setExpandedStep(isExpanded ? null : step.step_number)}
-              >
-                <div className="step-header-left">
-                  <span className="step-number">Step {step.step_number}</span>
-                  <span className="step-tools-summary mono text-muted">
-                    {toolCalls.length > 0
-                      ? toolCalls.map((tc) => tc.toolName).join(' → ')
-                      : hasText
-                        ? '(assistant text only)'
-                        : '(no tool calls)'}
-                  </span>
-                </div>
-                <div className="step-header-right">
-                  {step.stop_reason && (
-                    <span className="pill pill-queued step-stop-reason">
-                      {step.stop_reason}
-                    </span>
-                  )}
-                  {totalTokens > 0 && (
-                    <span className="mono text-muted" style={{ fontSize: 11 }}>
-                      {(step.usage_input ?? 0).toLocaleString()} in / {(step.usage_output ?? 0).toLocaleString()} out
-                    </span>
-                  )}
-                  <span className="collapse-toggle" style={{ fontSize: 11 }}>
-                    {isExpanded ? '▼' : '▶'}
-                  </span>
-                </div>
-              </div>
-
-              {isExpanded && hasDetails && (
-                <div className="step-details">
-                  {hasText && (
-                    <div className="step-assistant-section">
-                      <div className="section-label step-assistant-label">Assistant text</div>
-                      <pre className="agent-code step-assistant-text">{step.assistant_text}</pre>
-                    </div>
-                  )}
-                  {hasReasoning && (
-                    <details className="step-reasoning">
-                      <summary className="section-label step-reasoning-summary">
-                        Reasoning ({(step.reasoning ?? '').length.toLocaleString()} chars)
-                      </summary>
-                      <pre className="agent-code step-reasoning-body">{step.reasoning}</pre>
-                    </details>
-                  )}
-                  {toolCalls.map((tc, i) => (
-                    <div key={i} className="step-tool-call">
-                      <div className="step-tool-name mono">{tc.toolName}</div>
-                      <details className="step-tool-data">
-                        <summary className="text-muted" style={{ fontSize: 11, cursor: 'pointer' }}>
-                          args
-                        </summary>
-                        <pre className="step-tool-json">{JSON.stringify(tc.args, null, 2)}</pre>
-                      </details>
-                      {tc.result !== undefined && (
-                        <details className="step-tool-data">
-                          <summary className="text-muted" style={{ fontSize: 11, cursor: 'pointer' }}>
-                            result
-                          </summary>
-                          <pre className="step-tool-json">
-                            {typeof tc.result === 'string'
-                              ? tc.result.slice(0, 2000)
-                              : JSON.stringify(tc.result, null, 2)?.slice(0, 2000)}
-                          </pre>
-                        </details>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function phaseLabel(phase: string | null): string {
-  const labels: Record<string, string> = {
-    initializing: 'Initializing',
-    cloning: 'Cloning repo',
-    cloned: 'Repo cloned',
-    orchestrating: 'Orchestrating',
-    agent_running: 'Agent running',
-    agent_done: 'Agent done',
-    posting_review: 'Posting review',
-    cleanup: 'Cleaning up',
-    done: 'Complete',
-    failed: 'Failed',
-  };
-  return phase ? labels[phase] ?? phase : '';
-}
-
-function eventIcon(eventType: string): string {
-  const icons: Record<string, string> = {
-    run_start: '\u25B6',     // ▶
-    phase_change: '\u25CF',  // ●
-    tool_call_end: '\u25A0', // ■
-    agent_spawn: '\u25B7',   // ▷
-    agent_complete: '\u25C0',// ◀
-    step_complete: '\u2713', // ✓
-    run_complete: '\u2714',  // ✔
-    run_failed: '\u2718',    // ✘
-  };
-  return icons[eventType] ?? '\u25CB'; // ○
-}
-
-function eventColor(eventType: string): string {
-  switch (eventType) {
-    case 'run_start': return 'var(--blue)';
-    case 'agent_spawn': return 'var(--blue)';
-    case 'agent_complete': return 'var(--blue)';
-    case 'run_complete': return 'var(--green)';
-    case 'run_failed': return 'var(--red)';
-    case 'step_complete': return 'var(--green)';
-    case 'tool_call_end': return 'var(--text-muted)';
-    default: return 'var(--text-secondary)';
-  }
-}
-
-function LiveTimeline({ events, isRunning }: { events: RunEvent[]; isRunning: boolean }) {
+function MCTimeline({ events, isRunning }: { events: RunEvent[]; isRunning: boolean }) {
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [events.length]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [events.length]);
 
   if (events.length === 0 && !isRunning) return null;
 
   return (
-    <div className="live-timeline-section">
-      <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>
-        Live Activity {isRunning && <span className="pulse-dot" />}
-      </div>
-      <div className="live-timeline card">
-        {events.length === 0 ? (
-          <div className="live-timeline-empty mono text-muted">Waiting for events...</div>
-        ) : (
-          events.map((evt, i) => {
-            const isLast = i === events.length - 1;
-            return (
-              <div
-                key={evt.id}
-                className={`live-event${isLast && isRunning ? ' live-event-active' : ''}`}
-                style={{ borderLeftColor: isLast && isRunning ? 'var(--blue)' : eventColor(evt.event_type) }}
-              >
-                <span className="live-event-icon" style={{ color: isLast && isRunning ? 'var(--blue)' : eventColor(evt.event_type) }}>
-                  {isLast && isRunning ? '' : eventIcon(evt.event_type)}
-                </span>
-                {isLast && isRunning && <span className="spinner spinner-sm" />}
-                <span className="live-event-phase mono">{phaseLabel(evt.phase)}</span>
-                <span className="live-event-message">{evt.message}</span>
-                <span className="live-event-time mono text-muted">
-                  {new Date(evt.created_at).toLocaleTimeString('en-US', { hour12: false })}
-                </span>
-              </div>
-            );
-          })
-        )}
-        <div ref={bottomRef} />
-      </div>
+    <div className="mc-timeline">
+      <div className="section-label" style={{ marginBottom: 'var(--sp-2)' }}>Event Log</div>
+      {events.map((evt, i) => {
+        const isLast = i === events.length - 1;
+        return (
+          <div key={evt.id} className={`mc-timeline-event ${isLast && isRunning ? 'active' : ''}`}>
+            <div className="mc-timeline-icon" style={{ borderColor: isLast && isRunning ? 'var(--blue)' : eventColor(evt.event_type) }} />
+            <div className="mc-timeline-content">
+              <div className="mc-timeline-phase">{phaseLabel(evt.phase)}</div>
+              {evt.message && <div className="mc-timeline-msg">{evt.message}</div>}
+              <div className="mc-timeline-time">{new Date(evt.created_at).toLocaleTimeString('en-US', { hour12: false })}</div>
+            </div>
+          </div>
+        );
+      })}
+      {isRunning && events.length > 0 && (
+        <div className="mc-timeline-event active">
+          <div className="mc-timeline-icon" style={{ borderColor: 'var(--amber)' }} />
+          <div className="mc-timeline-content">
+            <div className="mc-timeline-phase text-amber">Processing... <span className="spinner spinner-sm" /></div>
+          </div>
+        </div>
+      )}
+      <div ref={bottomRef} />
     </div>
   );
 }
 
-function AttemptTabs({ selected, total, onSelect }: { selected: number; total: number; onSelect: (attempt: number) => void }) {
-  if (total <= 1) return null;
+function MCSteps({ steps }: { steps: RunStep[] }) {
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  if (!steps || steps.length === 0) return null;
+
   return (
-    <div className="attempt-bar">
-      <span className="section-label">Attempt</span>
-      <span className="attempt-tabs">
-        {Array.from({ length: total }, (_, i) => i + 1).map((n) => (
-          <button
-            key={n}
-            className={`attempt-tab${n === selected ? ' attempt-tab-active' : ''}`}
-            onClick={() => onSelect(n)}
-          >
-            {n}
-          </button>
-        ))}
-      </span>
-      {selected < total && (
-        <span className="attempt-hint text-muted">
-          Viewing past attempt — {total} is latest
-        </span>
+    <div className="mc-steps">
+      {steps.map(step => {
+        const isExpanded = expanded === step.step_number;
+        let toolCalls: any[] = [];
+        try { toolCalls = JSON.parse(step.tool_calls); } catch {}
+        
+        return (
+          <div key={step.id} className="mc-step">
+            <div className="mc-step-header" onClick={() => setExpanded(isExpanded ? null : step.step_number)}>
+              <span className="mc-step-title">
+                {isExpanded ? '▼' : '▶'} Step {step.step_number}
+              </span>
+              <span className="mc-step-tools">
+                {toolCalls.length > 0 ? toolCalls.map(t => t.toolName).join(', ') : step.assistant_text ? 'Text' : ''}
+              </span>
+            </div>
+            {isExpanded && (
+              <div className="mc-step-body">
+                {step.reasoning && (
+                  <div className="mc-reasoning">{step.reasoning}</div>
+                )}
+                {step.assistant_text && (
+                  <div className="mc-agent-text">{step.assistant_text}</div>
+                )}
+                {toolCalls.map((tc, i) => (
+                  <div key={i} className="mc-agent-text" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-surface)' }}>
+                    <strong style={{ color: 'var(--blue)' }}>{tc.toolName}</strong>
+                    <br/><br/>
+                    {JSON.stringify(tc.args, null, 2)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function MCReview({ review }: { review: Review }) {
+  const [expanded, setExpanded] = useState(true);
+  let inlineComments: InlineComment[] = [];
+  try { inlineComments = JSON.parse(review.inline_comments) as InlineComment[]; } catch {}
+
+  return (
+    <div className="mc-review-card fade-in">
+      <div className="mc-review-header" onClick={() => setExpanded(!expanded)}>
+        <div className="section-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+          {expanded ? '▼' : '▶'} Synthesized Review Report
+        </div>
+        {review.comment_url && (
+          <a href={review.comment_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ fontSize: 11 }} onClick={e => e.stopPropagation()}>
+            ↗ Open in GitHub
+          </a>
+        )}
+      </div>
+      {expanded && (
+        <div className="mc-review-body">
+          <div dangerouslySetInnerHTML={{ __html: renderMarkdown(review.summary) }} />
+          
+          {inlineComments.length > 0 && (
+            <div style={{ marginTop: 'var(--sp-8)' }}>
+              <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>Annotated Code Comments ({inlineComments.length})</div>
+              {inlineComments.map((c, i) => (
+                <div key={i} className="mc-inline-comment">
+                  <div className="mc-ic-header">
+                    <span className="text-blue">{c.path}</span>
+                    <span className="text-muted">Line {c.line} {c.side ? `(${c.side})` : ''}</span>
+                  </div>
+                  <div className="mc-ic-body">{c.body}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-function DirectResponseSection({ run }: { run: RunWithDetails }) {
-  if (!run.review) return null;
+function MCStats({ run }: { run: RunWithDetails }) {
   return (
-    <div className="review-section">
-      <div className="section-header-row">
-        <div className="section-label">Direct Response</div>
-        {run.review.comment_url && (
-          <a
-            href={run.review.comment_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn"
-            style={{ fontSize: 11 }}
-          >
-            ↗ View on GitHub
-          </a>
-        )}
+    <div className="mc-stats-card">
+      <div className="section-label">Operation Metrics</div>
+      <div className="mc-stats-row">
+        <span className="text-muted" style={{ fontSize: 12 }}>Total Cost</span>
+        <span className="mono text-green">{run.cost_usd !== null ? `$${run.cost_usd.toFixed(4)}` : '—'}</span>
       </div>
-      <div
-        className="review-body card"
-        dangerouslySetInnerHTML={{ __html: '<p>' + renderMarkdown(run.review.summary) + '</p>' }}
-      />
+      <div className="mc-stats-row">
+        <span className="text-muted" style={{ fontSize: 12 }}>Token Usage</span>
+        <span className="mono text-primary">{run.total_tokens !== null ? run.total_tokens.toLocaleString() : '—'}</span>
+      </div>
+      <div className="mc-stats-row">
+        <span className="text-muted" style={{ fontSize: 12 }}>Attempts</span>
+        <span className="mono text-primary">{run.attempt} / {run.max_attempt}</span>
+      </div>
+    </div>
+  );
+}
+
+function MCAgent({ output }: { output: AgentOutput }) {
+  const [expanded, setExpanded] = useState(false);
+  const type = output.agent_type;
+  
+  return (
+    <div className={`mc-agent-card ${type}`}>
+      <div className="mc-agent-header" onClick={() => setExpanded(!expanded)}>
+        <span className="mc-agent-title">
+          {type === 'claude' ? '🔵 CLAUDE' : type === 'codex' ? '🟢 CODEX' : `⚪ ${String(type).toUpperCase()}`}
+        </span>
+        <div className="mono text-muted" style={{ fontSize: 10, display: 'flex', gap: '8px' }}>
+          {output.duration_ms !== null && <span>{formatDurationMs(output.duration_ms)}</span>}
+          <span>{expanded ? '▼' : '▶'}</span>
+        </div>
+      </div>
+      {expanded && (
+        <div className="mc-agent-body">
+          {output.prompt && (
+            <>
+              <div className="section-label">Prompt</div>
+              <div className="mc-agent-code">{output.prompt}</div>
+            </>
+          )}
+          <div className="section-label">Raw Response</div>
+          <div className="mc-agent-code">{output.raw_output || '(no output)'}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MCDebug({ run }: { run: RunWithDetails }) {
+  const [expanded, setExpanded] = useState(false);
+  
+  if (!run.system_prompt && !run.orchestrator_input) return null;
+
+  return (
+    <div className="mc-debug-panel">
+      <div className="mc-debug-header" onClick={() => setExpanded(!expanded)}>
+        {expanded ? '▼ Debug Context' : '▶ Debug Context'}
+      </div>
+      {expanded && (
+        <div className="mc-debug-body">
+          {run.system_prompt && (
+            <div style={{ marginBottom: 'var(--sp-4)' }}>
+              <div className="section-label">System Prompt</div>
+              <pre className="agent-code" style={{ fontSize: 10, maxHeight: 200, overflow: 'auto', background: 'var(--bg-void)', padding: 'var(--sp-2)' }}>{run.system_prompt}</pre>
+            </div>
+          )}
+          {run.error && (
+            <div>
+              <div className="section-label text-red">Terminal Error</div>
+              <pre className="agent-code text-red" style={{ fontSize: 10, overflow: 'auto', background: 'var(--bg-void)', padding: 'var(--sp-2)' }}>{run.error}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MCMissionLogTabs({ events, steps, isRunning }: { events: RunEvent[], steps: RunStep[], isRunning: boolean }) {
+  const [activeTab, setActiveTab] = useState<'events' | 'actions'>('events');
+
+  return (
+    <div className="mc-log-tabs-container">
+      <div className="mc-tabs">
+        <button
+          className={`mc-tab ${activeTab === 'events' ? 'active' : ''}`}
+          onClick={() => setActiveTab('events')}
+        >
+          Event Log
+        </button>
+        <button
+          className={`mc-tab ${activeTab === 'actions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('actions')}
+        >
+          Orchestrator Actions {steps.length > 0 && `(${steps.length})`}
+        </button>
+      </div>
+      <div className="mc-tab-content">
+        {activeTab === 'events' && <MCTimeline events={events} isRunning={isRunning} />}
+        {activeTab === 'actions' && <MCSteps steps={steps} />}
+      </div>
     </div>
   );
 }
@@ -670,7 +366,6 @@ function DirectResponseSection({ run }: { run: RunWithDetails }) {
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
-
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -678,7 +373,6 @@ export default function RunDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
-  const [selectedAttempt, setSelectedAttempt] = useState<number | null>(null);
 
   const stopPollingRef = useRef<(() => void) | null>(null);
 
@@ -689,38 +383,8 @@ export default function RunDetailPage() {
       setPollError(null);
       setRun(updated);
     }, (_err, { fatal }) => {
-      if (fatal) {
-        setPollError('Lost connection to server');
-      }
+      if (fatal) setPollError('Lost connection to server');
     });
-  };
-
-  const retryPolling = () => {
-    if (!id) return;
-    startPolling(loadCredentials(), id);
-  };
-
-  const handleAttemptSelect = (attempt: number) => {
-    if (!id || !run) return;
-    setSelectedAttempt(attempt);
-
-    const isLatest = attempt === run.max_attempt;
-    if (isLatest) {
-      // Resuming live view — restart polling if still active
-      const creds = loadCredentials();
-      getRunDetail(creds, id).then((data) => {
-        setRun(data);
-        if (data.status === 'queued' || data.status === 'running') {
-          startPolling(creds, id);
-        }
-      }).catch(() => {});
-      return;
-    }
-
-    // Viewing historical attempt — stop polling so it doesn't overwrite
-    stopPollingRef.current?.();
-    stopPollingRef.current = null;
-    getRunDetail(loadCredentials(), id, attempt).then(setRun).catch(() => {});
   };
 
   useEffect(() => {
@@ -731,8 +395,6 @@ export default function RunDetailPage() {
       .then((data) => {
         setRun(data);
         setLoading(false);
-
-        // Start polling if the run is still active
         if (data.status === 'queued' || data.status === 'running') {
           startPolling(creds, id);
         }
@@ -742,166 +404,95 @@ export default function RunDetailPage() {
         setLoading(false);
       });
 
-    return () => {
-      stopPollingRef.current?.();
-    };
+    return () => stopPollingRef.current?.();
   }, [id]);
 
   if (loading) {
-    return (
-      <>
-        <div className="page-header">
-          <div className="page-title">Run Detail</div>
-        </div>
-        <div className="loading-row"><span className="spinner" /> Loading run...</div>
-      </>
-    );
+    return <div className="loading-row"><span className="spinner" /> Loading mission data...</div>;
   }
 
   if (error || !run) {
     return (
-      <>
-        <div className="page-header">
-          <div className="page-title">Run Detail</div>
-        </div>
-        <div className="page-body">
-          <div className="error-bar">{error ?? 'Run not found'}</div>
-          <button className="btn" onClick={() => navigate('/runs')}>← Back to Runs</button>
-        </div>
-      </>
+      <div className="run-detail-page-wrapper">
+        <div className="error-bar">{error ?? 'Run not found'}</div>
+        <button className="btn" onClick={() => navigate('/runs')}>← Abort and Return</button>
+      </div>
     );
   }
 
-  const hasAgentOutputs = run.agent_outputs.length > 0;
-
-  // Group by agent type
-  const claudeOutput = run.agent_outputs.find((o) => o.agent_type === 'claude') ?? null;
-  const codexOutput = run.agent_outputs.find((o) => o.agent_type === 'codex') ?? null;
-
   return (
-    <>
+    <div className="run-detail-page-wrapper">
       {pollError && (
         <div className="error-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>{pollError}</span>
-          <button className="btn" onClick={retryPolling}>Retry</button>
+          <button className="btn" onClick={() => startPolling(loadCredentials(), id!)}>Retry Connection</button>
         </div>
       )}
 
-      {/* Live status banner — always visible for active runs */}
-      <LiveStatusBanner run={run} />
-
-      {/* Header */}
-      <div className="page-header">
-        <div className="detail-header-left">
-          <button
-            className="btn back-btn"
-            onClick={() => navigate('/runs')}
-          >
-            ← Runs
+      {/* Cockpit Header */}
+      <div className="cockpit-header">
+        <div className="cockpit-left">
+          <button className="btn" onClick={() => navigate('/runs')} style={{ padding: 'var(--sp-1) var(--sp-2)' }}>
+            ← Back
           </button>
-          <div className="detail-pr-title">
-            <span className="mono text-muted">{run.repo}</span>
-            <span className="mono" style={{ fontSize: 16, fontWeight: 700 }}>
-              #{run.pr_number}
-            </span>
+          <div className="cockpit-pr-info">
+            <span className="cockpit-repo">{run.repo}</span>
+            <span className="cockpit-pr-num">#{run.pr_number}</span>
           </div>
         </div>
-        <div className="detail-header-right">
+        <div className="cockpit-right">
           <StatusBadge status={run.status} />
           {run.pr_url && (
-            <a
-              href={run.pr_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn"
-            >
+            <a href={run.pr_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
               ↗ GitHub PR
             </a>
           )}
         </div>
       </div>
 
-      <div className="page-body detail-body">
-        {/* Attempt indicator */}
-        <AttemptTabs selected={selectedAttempt ?? run.selected_attempt} total={run.max_attempt} onSelect={handleAttemptSelect} />
+      {/* Bento Grid */}
+      <div className="mission-control-grid">
+        
+        {/* Column 1: Mission Log */}
+        <div className="mc-col mission-log">
+          <MCLiveStatus run={run} />
+          <MCMissionLogTabs 
+            events={run.events ?? []} 
+            steps={run.steps ?? []} 
+            isRunning={run.status === 'queued' || run.status === 'running'} 
+          />
+        </div>
 
-        {/* Live activity timeline (shown for active or recently completed runs) */}
-        <LiveTimeline
-          events={run.events ?? []}
-          isRunning={run.status === 'running' || run.status === 'queued'}
-        />
+        {/* Column 2: Main Workspace */}
+        <div className="mc-col main-workspace">
+          <MCStats run={run} />
+          
+          {!run.review && (!run.agent_outputs || run.agent_outputs.length === 0) && (
+            <div className="empty-state">
+              <div className="empty-state-icon">📡</div>
+              <div>Awaiting intelligence synthesis...</div>
+            </div>
+          )}
 
-        {/* Metadata */}
-        <div className="meta-grid">
-          <div className="meta-item">
-            <div className="section-label">Triggered by</div>
-            <div className="mono">@{run.trigger_user}</div>
-          </div>
-          <div className="meta-item">
-            <div className="section-label">Trigger</div>
-            <div className="mono text-secondary" style={{ fontSize: 12 }}>
-              {run.trigger_body.slice(0, 80)}
-            </div>
-          </div>
-          <div className="meta-item">
-            <div className="section-label">Cost</div>
-            <div className="mono" style={{ color: 'var(--green)' }}>
-              {run.cost_usd !== null ? `$${run.cost_usd.toFixed(4)}` : '—'}
-            </div>
-          </div>
-          <div className="meta-item">
-            <div className="section-label">Tokens</div>
-            <div className="mono text-secondary">
-              {run.total_tokens !== null ? run.total_tokens.toLocaleString() : '—'}
-            </div>
-          </div>
-          {run.error && (
-            <div className="meta-item meta-item-error">
-              <div className="section-label" style={{ color: 'var(--red)' }}>Error</div>
-              <div className="mono" style={{ color: 'var(--red)', fontSize: 12 }}>
-                {run.error}
+          {run.review && (
+            <MCReview review={run.review} />
+          )}
+
+          {run.agent_outputs && run.agent_outputs.length > 0 && (
+            <div>
+              <div className="section-label" style={{ marginTop: 'var(--sp-4)', marginBottom: 'var(--sp-2)' }}>Agent Interfaces</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+                {run.agent_outputs.map(output => (
+                  <MCAgent key={output.id} output={output} />
+                ))}
               </div>
             </div>
           )}
+
+          <MCDebug run={run} />
         </div>
 
-        {/* Timing */}
-        <TimingBar run={run} />
-
-        {/* Orchestrator inputs — system prompt + messages the LLM actually saw */}
-        <OrchestratorContextPanel run={run} />
-
-        {/* Orchestrator Steps */}
-        {run.steps && run.steps.length > 0 && <StepsTimeline steps={run.steps} />}
-
-        {/* Agent outputs */}
-        {hasAgentOutputs ? (
-          <div className="agent-outputs-section">
-            <div className="section-label" style={{ marginBottom: 'var(--sp-3)' }}>
-              Agent Outputs ({run.agent_outputs.length})
-            </div>
-            <div className="agent-panels">
-              {claudeOutput && (
-                <AgentPanel output={claudeOutput} />
-              )}
-              {codexOutput && (
-                <AgentPanel output={codexOutput} />
-              )}
-              {/* Any other outputs */}
-              {run.agent_outputs
-                .filter((o) => o.agent_type !== 'claude' && o.agent_type !== 'codex')
-                .map((o) => (
-                  <AgentPanel key={o.id} output={o} />
-                ))}
-            </div>
-          </div>
-        ) : (
-          run.review && <DirectResponseSection run={run} />
-        )}
-
-        {/* Review (only when there were agent outputs) */}
-        {hasAgentOutputs && run.review && <ReviewSection review={run.review} />}
       </div>
-    </>
+    </div>
   );
 }
