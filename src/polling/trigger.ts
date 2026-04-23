@@ -21,6 +21,26 @@ export function isWhitelisted(username: string, whitelist: string[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Explicit-mention check
+// ---------------------------------------------------------------------------
+
+// GitHub's notification reason "mention" fires for edits, quoted text, and
+// subscribed-thread activity — not only fresh @mentions. This check requires
+// the bot's handle to appear as a real @mention token in the unquoted body.
+export function mentionsBotDirectly(body: string, botUsername: string): boolean {
+  // Drop markdown blockquote lines so quoted prior mentions don't re-trigger.
+  const unquoted = body
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('>'))
+    .join('\n');
+
+  const escaped = botUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Standalone token: not preceded or followed by a word char or hyphen.
+  const re = new RegExp(`(?:^|[^\\w-])@${escaped}(?=$|[^\\w-])`, 'i');
+  return re.test(unquoted);
+}
+
+// ---------------------------------------------------------------------------
 // Dedup check
 // ---------------------------------------------------------------------------
 
@@ -53,13 +73,25 @@ export async function processMention(
     return;
   }
 
-  // 2. Check dedup
+  // 2. Require explicit @bot mention in the comment body. GitHub's notification
+  //    "mention" reason also fires for edits, quoted blocks, and subscribed
+  //    threads — this prevents those spurious triggers.
+  if (!mentionsBotDirectly(commentBody, config.bot.githubUsername)) {
+    logger.info('Notification flagged as mention but body does not directly @mention bot, skipping', {
+      commentId,
+      author: commentAuthor,
+      botUsername: config.bot.githubUsername,
+    });
+    return;
+  }
+
+  // 3. Check dedup
   if (isAlreadyProcessed(commentId)) {
     logger.debug('Comment already processed, skipping', { commentId });
     return;
   }
 
-  // 3. Add eyes reaction to signal we're looking
+  // 4. Add eyes reaction to signal we're looking
   const { owner, repo, number } = parseRepoFromUrl(prUrl);
   const pat = config.bot.githubPAT;
 
@@ -72,7 +104,7 @@ export async function processMention(
     });
   }
 
-  // 4. Create a queued run (or merge into existing queued run for same PR)
+  // 5. Create a queued run (or merge into existing queued run for same PR)
   const { run, merged } = enqueue({
     pr_url: prUrl,
     pr_number: number,
