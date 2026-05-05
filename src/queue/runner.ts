@@ -9,6 +9,7 @@ import { getFileContents } from '../tools/get-file-contents.ts';
 import { searchCode } from '../tools/search-code.ts';
 import { createClaudeAgent, createCodexAgent } from '../ai/agents.ts';
 import { generateText } from 'ai';
+import { streamCodexText } from '../ai/codex-stream.ts';
 import { createNanogptModel, createCodexResponsesModel, createStandardModel } from '../ai/providers.ts';
 import { getCodexCredentials, getCodexApiKey } from '../ai/codex-oauth.ts';
 import { buildToolDefinitions, runOrchestrator } from '../ai/orchestrator.ts';
@@ -623,11 +624,11 @@ async function handleSpawnCodex(
 
   try {
     const { model } = createCodexAgent(params.repo_path, config.agents.codex);
-    const { text, usage } = await generateText({
+    const { text, usage } = await streamCodexText(
       model,
-      prompt: params.prompt,
-      abortSignal: AbortSignal.timeout(10 * 60 * 1000),
-    });
+      params.prompt,
+      AbortSignal.timeout(10 * 60 * 1000),
+    );
     const durationMs = Date.now() - startMs;
 
     // Store agent output in DB
